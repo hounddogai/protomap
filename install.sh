@@ -1,153 +1,131 @@
-#!/usr/bin/env bash
+#!/bin/sh
 #
-# Installs ProtoMap self-hosted: generates the configuration with secrets and a setup key, pulls the image from Docker
-# Hub, and starts it. The configuration goes to .env next to compose.yaml, or to the file named by --env-file, which
-# every later docker compose command then needs too.
+# Installs the ProtoMap CLI from its GitHub releases. The latest release:
 #
-# Usage: ./install.sh [--env-file PATH]
+#   curl -fsSL https://raw.githubusercontent.com/hounddogai/protomap/main/install.sh | sh
+#
+# Or a version, such as the one a ProtoMap server runs, which its platform's install command names:
+#
+#   curl -fsSL https://raw.githubusercontent.com/hounddogai/protomap/main/install.sh | sh -s -- 0.1.0
+#
+# The CLI installs to ~/.local/bin, or to PROTOMAP_INSTALL_DIR. Releases have builds for Linux and macOS on x86_64 and
+# aarch64, named protomap-<os>-<arch>, and a SHA256SUMS file that each download must match before it replaces the
+# installed CLI. Windows installs with install.ps1 instead.
+#
+# PROTOMAP_RELEASES_URL replaces https://github.com/hounddogai/protomap/releases, such as with a mirror or a test's
+# server, which serves the same paths: <url>/latest/download/<file> and <url>/download/<version>/<file>.
 
-set -euo pipefail
+set -eu
 
-env_temp=""
-cleanup() {
-    if [ -n "$env_temp" ]; then
-        rm -f "$env_temp"
-    fi
-}
-trap cleanup EXIT
-
-say() { printf '%s\n' "$*"; }
-heading() { printf '\n%s\n' "$*"; }
 fail() {
-    printf 'ERROR: %s\n' "$*" >&2
+    printf '%s\n' "$*" >&2
     exit 1
 }
 
-# Prints $1 random bytes, base64url-encoded without padding or newlines.
-generate_secret() {
-    if command -v openssl > /dev/null 2>&1; then
-        openssl rand -base64 "$1" | tr -d '\n=' | tr '+/' '-_'
-    else
-        head -c "$1" /dev/urandom | base64 | tr -d '\n=' | tr '+/' '-_'
-    fi
+# Quotes a word for a POSIX shell, so a printed command still works when its path holds spaces.
+quote() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
-env_file=""
-case "${1:-}" in
-    "") ;;
-    --env-file)
-        [ "$#" -eq 2 ] && [ -n "$2" ] || fail "Usage: ./install.sh [--env-file PATH]"
-        env_file="$2"
+# Whether $1 is a version, which is a release's tag, such as 1.2.3 or 1.2.3-beta.1. The character check also refuses
+# line breaks, which grep would read as separate lines.
+is_version() {
+    case "$1" in
+        *[!0-9A-Za-z.-]*) return 1 ;;
+    esac
+    printf '%s\n' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+}
+
+script_url='https://raw.githubusercontent.com/hounddogai/protomap/main'
+[ "$#" -le 1 ] || fail 'Pass one version at most:' "curl -fsSL ${script_url}/install.sh | sh -s -- <version>"
+version="${1:-}"
+[ -z "${version}" ] || is_version "${version}" ||
+    fail "${version} is not a version of the ProtoMap CLI, such as 1.2.3 or 1.2.3-beta.1."
+
+case "$(uname -s)" in
+    Linux) os=linux ;;
+    Darwin) os=macos ;;
+    # Git Bash, MSYS2, and Cygwin on Windows.
+    MINGW* | MSYS* | CYGWIN*)
+        fail 'On Windows, install the ProtoMap CLI in PowerShell:' \
+            "& ([scriptblock]::Create((irm ${script_url}/install.ps1)))${version:+ ${version}}"
         ;;
-    *) fail "Usage: ./install.sh [--env-file PATH]" ;;
+    *) fail "The ProtoMap CLI runs on Linux, macOS, and Windows; this computer runs $(uname -s)." ;;
 esac
-# A relative path starts from where the installer was run, not from its own folder.
-case "$env_file" in
-    "" | /*) ;;
-    *) env_file="$PWD/$env_file" ;;
+case "$(uname -m)" in
+    x86_64 | amd64) arch=x86_64 ;;
+    aarch64 | arm64) arch=aarch64 ;;
+    *) fail "The ProtoMap CLI runs on x86_64 and aarch64; this computer is $(uname -m)." ;;
 esac
-cd "$(dirname "$0")"
-env_file="${env_file:-$PWD/.env}"
-env_label=".env"
-compose_command="docker compose"
-if [ "$env_file" != "$PWD/.env" ]; then
-    env_label="$env_file"
-    compose_command="docker compose --env-file $env_file"
+command -v curl > /dev/null 2>&1 || fail 'Install curl, then run this again.'
+# Both print the checksum of standard input first: sha256sum on Linux, and shasum on macOS.
+if command -v sha256sum > /dev/null 2>&1; then
+    hash_file() { sha256sum < "$1"; }
+elif command -v shasum > /dev/null 2>&1; then
+    hash_file() { shasum -a 256 < "$1"; }
+else
+    fail 'Install sha256sum or shasum, which check the download, then run this again.'
 fi
 
-heading "CHECK REQUIREMENTS"
-command -v docker > /dev/null 2>&1 || fail "Docker is required. Install it first: https://docs.docker.com/get-docker/"
-docker compose version > /dev/null 2>&1 || fail "Docker Compose v2 is required. Update Docker or install the plugin."
-if [ -e "$env_file" ] || [ -L "$env_file" ]; then
-    fail "ProtoMap is already installed here. Delete ${env_label} to install again."
+releases="${PROTOMAP_RELEASES_URL:-https://github.com/hounddogai/protomap/releases}"
+releases="${releases%/}"
+if [ -n "${version}" ]; then
+    files="${releases}/download/${version}"
+    release="ProtoMap CLI ${version}"
+else
+    files="${releases}/latest/download"
+    release='the latest ProtoMap CLI release'
 fi
-[ -d "$(dirname "$env_file")" ] || fail "The folder of ${env_label} does not exist."
+asset="protomap-${os}-${arch}"
 
-heading "SELECT INSTALLATION"
-say "1) Trial: uses the bundled PostgreSQL."
-say "2) Production: uses your PostgreSQL 18 or newer."
-while :; do
-    read -r -p "Select 1 or 2 [default: 1]: " install_type
-    install_type="${install_type:-1}"
-    case "$install_type" in
-        1 | 2) break ;;
-        *) say "Enter 1 or 2." ;;
+# Downloads the release's file named $1 to $2, or fails with $3 when the release does not have it.
+download_file() {
+    status="$(curl -sSL -o "$2" -w '%{http_code}' "${files}/$1")" ||
+        fail "Cannot download ${files}/$1. Check the connection, then run this again."
+    case "${status}" in
+        2??) ;;
+        404) fail "$3" ;;
+        *) fail "Cannot download ${files}/$1: the server answered HTTP ${status}." ;;
     esac
-done
-while :; do
-    read -r -p "Port [default: 3300]: " port
-    port="${port:-3300}"
-    case "$port" in
-        *[!0-9]* | "") say "Enter a port from 1 to 65535." ;;
-        *)
-            if [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
-                break
-            fi
-            say "Enter a port from 1 to 65535."
-            ;;
-    esac
-done
-database_url=""
-if [ "$install_type" = "2" ]; then
-    say "Enter your PostgreSQL URL in the form postgres://USER:PASSWORD@HOST:PORT/DATABASE"
-    while :; do
-        read -r -s -p "PostgreSQL URL: " database_url
-        say ""
-        case "$database_url" in
-            *"'"*) say "Percent-encode single quotes in the URL." ;;
-            postgres://* | postgresql://*) break ;;
-            *) say "Enter a URL that starts with postgres:// or postgresql://." ;;
-        esac
-    done
-fi
+}
 
-heading "GENERATE SECRETS"
-setup_key="$(generate_secret 32)"
-admin_password="$(generate_secret 32)"
-secret_key="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
-umask 077
-env_temp="$(mktemp "$(dirname "$env_file")/.env.tmp.XXXXXX")"
-{
-    printf '# Generated by install.sh. Keep this file private: it contains secrets.\n\n'
-    printf 'PROTOMAP_SETUP_KEY=%s\n' "$setup_key"
-    printf 'PROTOMAP_ADMIN_PASSWORD=%s\n' "$admin_password"
-    printf 'PROTOMAP_SECRET_KEY=%s\n' "$secret_key"
-    printf 'PROTOMAP_PORT=%s\n\n' "$port"
-    if [ "$install_type" = "1" ]; then
-        printf 'COMPOSE_PROFILES=postgres\n'
-        printf 'POSTGRES_USER=protomap\n'
-        printf 'POSTGRES_PASSWORD=%s\n' "$(generate_secret 32)"
-        printf 'POSTGRES_DB=protomap\n'
-        # Compose expands these references when it reads the file.
-        # shellcheck disable=SC2016
-        printf 'PROTOMAP_DATABASE_URL=%s\n' 'postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}'
-    else
-        printf "PROTOMAP_DATABASE_URL='%s'\n" "$database_url"
-    fi
-} > "$env_temp"
-mv "$env_temp" "$env_file"
-env_temp=""
+directory="${PROTOMAP_INSTALL_DIR:-${HOME}/.local/bin}"
+mkdir -p "${directory}"
+# Download beside the destination and rename, so a failed download never replaces a working CLI.
+download="$(mktemp "${directory}/.protomap.XXXXXX")"
+sums="$(mktemp "${directory}/.protomap.XXXXXX")"
+trap 'rm -f "${download}" "${sums}"' EXIT
+printf '%s\n' "Downloading ${release} for ${os} on ${arch} from ${releases}"
+download_file SHA256SUMS "${sums}" \
+    "Cannot find ${release}, or its SHA256SUMS. See the releases at ${releases}"
+download_file "${asset}" "${download}" \
+    "There is no build for ${os} on ${arch} in ${release}. See the releases at ${releases}"
 
-url="http://localhost:${port}"
-heading "SETUP KEY"
-say "Open ${url} and create the owner's account with this setup key, which is also in ${env_label}:"
-say "  ${setup_key}"
+# SHA256SUMS lists each file as <checksum>  <name>, or <checksum> *<name> in binary mode.
+expected="$(awk -v name="${asset}" '$2 == name || $2 == "*" name { print tolower($1); exit }' "${sums}")"
+case "${expected}" in
+    '' | *[!0-9a-f]*) fail "The SHA256SUMS of ${release} has no checksum for ${asset}." ;;
+esac
+actual="$(hash_file "${download}" | awk '{ print tolower($1) }')"
+[ "${actual}" = "${expected}" ] ||
+    fail "The download of ${asset} does not match its checksum in SHA256SUMS, so the installed CLI stays as it was." \
+        "Run this again; if it fails again, the download is damaged on its way to this computer."
+chmod 755 "${download}"
+mv -f "${download}" "${directory}/protomap"
+rm -f "${sums}"
+trap - EXIT
 
-heading "START"
-say "Pulling the image and starting the services."
-if ! docker compose --env-file "$env_file" up --detach --wait; then
-    fail "The services did not start. Fix the reported error and run: ${compose_command} up --detach --wait"
-fi
-
-heading "DONE"
-say "ProtoMap is running at ${url}."
-say ""
-say "Members scan repositories with the ProtoMap CLI on their computers: they install it from ${url}, log in"
-say "with \"protomap login --server=${url}\", and run \"protomap scan\" in their repositories. Continuous"
-say "integration scans with an organization API key, which admins create in the platform's settings:"
-say "  export PROTOMAP_URL=${url} PROTOMAP_API_KEY=<API key>"
-say "  protomap scan /path/to/repository"
-say ""
-say "The job queue dashboard is at http://127.0.0.1:8801 on this computer only, with the user admin and"
-say "PROTOMAP_ADMIN_PASSWORD from ${env_label}. To open it from another computer, forward its port there first:"
-say "  ssh -L 8801:127.0.0.1:8801 <this computer>"
+printf '%s\n' "Installed ${release} to ${directory}/protomap."
+case ":${PATH}:" in
+    *":${directory}:"*) command="protomap" ;;
+    *)
+        command="$(quote "${directory}/protomap")"
+        printf '%s\n' "${directory} is not on your PATH. Add it to your shell's profile, such as with:" \
+            "  echo 'export PATH=\"${directory}:\$PATH\"' >> ~/.profile"
+        ;;
+esac
+printf '%s\n' "Log in with: ${command} login --server=<your ProtoMap server's address>" \
+    "Then add ProtoMap to your coding agent, such as Claude Code, so it reads the graph with your changes" \
+    "laid over it:" \
+    "  claude mcp add protomap -- ${command} mcp serve" \
+    "Other coding agents run ${command} mcp serve from the repository's folder, over standard input and output."
