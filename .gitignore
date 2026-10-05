@@ -1,0 +1,3 @@
+# The configuration install.sh generates, which holds secrets.
+.env
+.env.tmp.*

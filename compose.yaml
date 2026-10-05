@@ -1,0 +1,162 @@
+# ProtoMap self-hosted.
+#
+# Quick start:
+#   1. ./install.sh (generates .env with secrets and a setup key, pulls the image, and starts the services)
+#   2. Open http://localhost:3300 and create the owner's account with the setup key the installer printed.
+#
+# The services run the image hounddogai/protomap from Docker Hub, the latest release unless PROTOMAP_VERSION names
+# another. The server and the worker scale out; the proxy spreads requests across the server's replicas:
+#   docker compose up --detach --wait --scale server=3 --scale worker=2
+#
+# Set PROTOMAP_PORT to change the published port, and PROTOMAP_BIND_ADDRESS=127.0.0.1 to accept connections only from
+# the Docker host, the computer that runs this stack. The proxy publishes the job queue dashboard on 127.0.0.1 of the
+# Docker host only, at PROTOMAP_DASHBOARD_PORT.
+#
+# Configuration comes from .env next to this file, or from the file named by --env-file. Development runs the server and
+# the worker on the host, and uses only the postgres service, with shell/env/.env.dev:
+#   docker compose --file self-hosted/compose.yaml --env-file shell/env/.env.dev up --detach --wait postgres
+# To run the whole stack on an image built from the source instead, add --file local/compose.yaml.
+
+# Keep the stack grouped under this project name in Docker Compose and Docker Desktop. COMPOSE_PROJECT_NAME overrides
+# it, which keeps development's PostgreSQL apart from an installation.
+name: protomap
+
+# Shared definition of the containers that run the ProtoMap image. `command` selects the role. They have no container
+# names and publish no ports, so they scale; the proxy is the way in.
+x-protomap: &protomap
+  image: hounddogai/protomap:${PROTOMAP_VERSION:-latest}
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+
+# The configuration of the server and the worker.
+x-protomap-environment: &protomap-environment
+  PROTOMAP_DATABASE_URL: ${PROTOMAP_DATABASE_URL:?is required. Run ./install.sh or provide a postgres:// or postgresql:// URL}
+  PROTOMAP_SETUP_KEY: ${PROTOMAP_SETUP_KEY:-}
+  PROTOMAP_ADMIN_PASSWORD: ${PROTOMAP_ADMIN_PASSWORD:-}
+  PROTOMAP_SECRET_KEY: ${PROTOMAP_SECRET_KEY:?is required. Run ./install.sh or generate one with openssl rand -hex 32}
+  PROTOMAP_ARTIFACT_CACHE_MB: ${PROTOMAP_ARTIFACT_CACHE_MB:-}
+  PROTOMAP_MODEL_CATALOG_URL: ${PROTOMAP_MODEL_CATALOG_URL:-}
+  RUST_LOG: ${RUST_LOG:-warn}
+
+services:
+  postgres:
+    container_name: ${COMPOSE_PROJECT_NAME:-protomap}-postgres
+    image: postgres:18.4-alpine
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-protomap}
+      POSTGRES_USER: ${POSTGRES_USER:-protomap}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-protomap}
+    # Only the Docker host reaches it. Without PROTOMAP_POSTGRES_PORT, Docker picks the port; find it with:
+    # docker compose port postgres 5432
+    ports:
+      - "127.0.0.1:${PROTOMAP_POSTGRES_PORT:-}:5432"
+    volumes:
+      # PostgreSQL 18 expects the volume at /var/lib/postgresql; the data lives in a subdirectory.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+
+  # The API and the platform UI. Each replica migrates the database when it starts; the migrations take a lock, so
+  # replicas starting together apply them once.
+  server:
+    <<: *protomap
+    command: server
+    environment: *protomap-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8800/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+
+  # The workers run the jobs, each job once, and serve the job queue dashboard when PROTOMAP_ADMIN_PASSWORD is set.
+  worker:
+    <<: *protomap
+    command: worker
+    environment:
+      <<: *protomap-environment
+      PROTOMAP_DASHBOARD_LISTEN: 0.0.0.0:8801
+    # Let jobs in flight finish; the worker's own shutdown grace is 30 seconds.
+    stop_grace_period: 40s
+    depends_on:
+      server:
+        condition: service_healthy
+
+  # The one service that publishes ports: the API and the platform UI, and the job queue dashboard for the Docker host
+  # only.
+  proxy:
+    container_name: ${COMPOSE_PROJECT_NAME:-protomap}-proxy
+    image: caddy:2.11.6-alpine
+    restart: unless-stopped
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    ports:
+      - "${PROTOMAP_BIND_ADDRESS:+${PROTOMAP_BIND_ADDRESS}:}${PROTOMAP_PORT:-3300}:3300"
+      - "127.0.0.1:${PROTOMAP_DASHBOARD_PORT:-8801}:8801"
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3300/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
+configs:
+  caddyfile:
+    content: |
+      {
+      	admin off
+      	auto_https off
+      	persist_config off
+      	servers {
+      		# Pass on the X-Forwarded-Proto and X-Forwarded-Host of a proxy that ends TLS in front of the stack, which
+      		# the server reads to mark session cookies Secure and to write its install scripts' address.
+      		trusted_proxies static 0.0.0.0/0 ::/0
+      	}
+      }
+
+      # The API and the platform UI, spread across the server's replicas, which Docker's DNS lists. Every replica
+      # serves every request: browsers get their events from whichever replica they reach.
+      :3300 {
+      	reverse_proxy {
+      		dynamic a server 8800 {
+      			refresh 5s
+      		}
+      		lb_policy least_conn
+      		lb_try_duration 10s
+      		fail_duration 10s
+      		# Chats and the MCP endpoint stream their responses.
+      		flush_interval -1
+      	}
+      }
+
+      # The job queue dashboard. Each worker keeps its own sign-in sessions, so a browser always reaches the same one.
+      :8801 {
+      	reverse_proxy {
+      		dynamic a worker 8801 {
+      			refresh 5s
+      		}
+      		lb_policy ip_hash
+      		lb_try_duration 10s
+      	}
+      }
+
+volumes:
+  postgres-data:
