@@ -9,13 +9,13 @@ graph and answers questions about it, and it lets coding agents such as Claude C
 On macOS and Linux:
 
 ```shell
-curl -fsSL https://raw.githubusercontent.com/hounddogai/protomap/main/install.sh | sh
+curl -fsSL https://install.protomap.ai | sh
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hounddogai/protomap/main/install.ps1)))
+& ([scriptblock]::Create((irm https://install.protomap.ai/install.ps1)))
 ```
 
 The scripts install the latest release for your computer, on x86_64 or aarch64, after checking it against the

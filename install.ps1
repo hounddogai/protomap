@@ -1,10 +1,10 @@
 # Installs the ProtoMap CLI on Windows from its GitHub releases, in PowerShell. The latest release:
 #
-#   irm https://raw.githubusercontent.com/hounddogai/protomap/main/install.ps1 | iex
+#   irm https://install.protomap.ai/install.ps1 | iex
 #
 # Or a version, such as the one a ProtoMap server runs, which its platform's install command names:
 #
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/hounddogai/protomap/main/install.ps1))) 0.1.0
+#   & ([scriptblock]::Create((irm https://install.protomap.ai/install.ps1))) 0.1.0
 #
 # The CLI installs to %LOCALAPPDATA%\protomap\bin, or to PROTOMAP_INSTALL_DIR, and the folder goes first on the user's
 # PATH. Releases have builds for Windows on x86_64 and aarch64, named protomap-windows-<arch>.exe, and a SHA256SUMS file
@@ -23,14 +23,14 @@
     # The progress bar slows downloads in Windows PowerShell several times over.
     $ProgressPreference = 'SilentlyContinue'
 
-    $ScriptUrl = 'https://raw.githubusercontent.com/hounddogai/protomap/main'
+    $ScriptUrl = 'https://install.protomap.ai'
     # A version is a release's tag, such as 1.2.3 or 1.2.3-beta.1. \z ends the match at the very end, where $ would
     # also allow a line break.
     if ($Version -and $Version -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?\z') {
         throw "$Version is not a version of the ProtoMap CLI, such as 1.2.3 or 1.2.3-beta.1."
     }
     if ($env:OS -ne 'Windows_NT') {
-        $Command = "curl -fsSL $ScriptUrl/install.sh | sh"
+        $Command = "curl -fsSL $ScriptUrl | sh"
         if ($Version) {
             $Command += " -s -- $Version"
         }

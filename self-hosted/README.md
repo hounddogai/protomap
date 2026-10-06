@@ -119,13 +119,13 @@ server's own version, such as 0.1.0, to `~/.local/bin` (or `PROTOMAP_INSTALL_DIR
 release's `SHA256SUMS`:
 
 ```shell
-curl -fsSL https://raw.githubusercontent.com/hounddogai/protomap/main/install.sh | sh -s -- 0.1.0
+curl -fsSL https://install.protomap.ai | sh -s -- 0.1.0
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hounddogai/protomap/main/install.ps1))) 0.1.0
+& ([scriptblock]::Create((irm https://install.protomap.ai/install.ps1))) 0.1.0
 ```
 
 Members can also download the binaries from the [releases page](https://github.com/hounddogai/protomap/releases), or

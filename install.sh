@@ -2,11 +2,11 @@
 #
 # Installs the ProtoMap CLI from its GitHub releases. The latest release:
 #
-#   curl -fsSL https://raw.githubusercontent.com/hounddogai/protomap/main/install.sh | sh
+#   curl -fsSL https://install.protomap.ai | sh
 #
 # Or a version, such as the one a ProtoMap server runs, which its platform's install command names:
 #
-#   curl -fsSL https://raw.githubusercontent.com/hounddogai/protomap/main/install.sh | sh -s -- 0.1.0
+#   curl -fsSL https://install.protomap.ai | sh -s -- 0.1.0
 #
 # The CLI installs to ~/.local/bin, or to PROTOMAP_INSTALL_DIR. Releases have builds for Linux and macOS on x86_64 and
 # aarch64, named protomap-<os>-<arch>, and a SHA256SUMS file that each download must match before it replaces the
@@ -36,8 +36,8 @@ is_version() {
     printf '%s\n' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 }
 
-script_url='https://raw.githubusercontent.com/hounddogai/protomap/main'
-[ "$#" -le 1 ] || fail 'Pass one version at most:' "curl -fsSL ${script_url}/install.sh | sh -s -- <version>"
+script_url='https://install.protomap.ai'
+[ "$#" -le 1 ] || fail 'Pass one version at most:' "curl -fsSL ${script_url} | sh -s -- <version>"
 version="${1:-}"
 [ -z "${version}" ] || is_version "${version}" ||
     fail "${version} is not a version of the ProtoMap CLI, such as 1.2.3 or 1.2.3-beta.1."
