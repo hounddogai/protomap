@@ -1,8 +1,8 @@
 # ProtoMap
 
-ProtoMap by HoundDog.ai maps how your gRPC services call each other and how protobuf fields flow between them and into
-data sinks. The ProtoMap CLI scans repositories on your computer and uploads the scans to a ProtoMap server, whose
-platform shows the graph and answers questions about it, and it lets coding agents such as Claude Code read the graph.
+ProtoMap by HoundDog.ai maps how your gRPC services call each other and how protobuf fields flow between them. The
+ProtoMap CLI scans repositories on your computer and uploads the scans to a ProtoMap server, whose platform shows the
+graph and answers questions about it, and it lets coding agents such as Claude Code read the graph.
 
 ## Install the CLI
 

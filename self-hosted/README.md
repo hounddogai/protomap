@@ -103,7 +103,7 @@ lists every route.
 | `DELETE /api/v1/repositories?identity=...` | Removes a repository from the graph.                          |
 | `GET /api/v1/services`                     | Lists services with their implementers and dependents.        |
 | `GET /api/v1/methods?service=...`          | Lists methods with their handlers and call sites.             |
-| `GET /api/v1/flows`                        | Lists dataflows, filtered by `rpc`, `sink`, `uncertain`.      |
+| `GET /api/v1/flows`                        | Lists dataflows, filtered by `rpc` and `uncertain`.           |
 | `GET /api/v1/flows/{fingerprint}`          | Shows a dataflow's trace and its continuations.               |
 | `PUT /api/v1/providers/{p}/connection`     | Connects an AI provider with a pasted API key.                |
 | `GET /api/v1/members`                      | Lists members with their roles.                               |
