@@ -125,6 +125,7 @@ case ":${PATH}:" in
         ;;
 esac
 printf '%s\n' "Log in with: ${command} login --server=<your ProtoMap server's address>" \
+    "On a computer without a browser, it prints a code to approve in a browser on any computer." \
     "Then add ProtoMap to your coding agent, such as Claude Code, so it reads the graph with your changes" \
     "laid over it:" \
     "  claude mcp add protomap -- ${command} mcp serve" \

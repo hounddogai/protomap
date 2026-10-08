@@ -71,17 +71,17 @@ accepts only API keys an admin pastes, never credentials of the machine it runs 
 
 Members install the ProtoMap CLI from its GitHub releases, for Linux, macOS, and Windows on x86_64 and aarch64; the
 Linux builds need glibc 2.28 or newer. The platform's setup steps show the command, which installs the release of the
-server's own version, such as 0.2.0, to `~/.local/bin` (or `PROTOMAP_INSTALL_DIR`) after checking it against the
+server's own version, such as 0.2.1, to `~/.local/bin` (or `PROTOMAP_INSTALL_DIR`) after checking it against the
 release's `SHA256SUMS`:
 
 ```shell
-curl -fsSL https://install.protomap.ai | sh -s -- 0.2.0
+curl -fsSL https://install.protomap.ai | sh -s -- 0.2.1
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((irm https://install.protomap.ai/install.ps1))) 0.2.0
+& ([scriptblock]::Create((irm https://install.protomap.ai/install.ps1))) 0.2.1
 ```
 
 Members can also download the binaries from the [releases page](https://github.com/hounddogai/protomap/releases), or
