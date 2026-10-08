@@ -2,7 +2,8 @@
 #
 # Quick start:
 #   1. ./install.sh (generates .env with secrets and a setup key, pulls the image, and starts the services)
-#   2. Open http://localhost:3300 and create the owner's account with the setup key the installer printed.
+#   2. Open http://localhost:3300, enter the setup key the installer printed, and name your organization and create its
+#      owner.
 #
 # The services run the image hounddogai/protomap from Docker Hub, the latest release unless PROTOMAP_VERSION names
 # another. The server and the worker scale out; the proxy spreads requests across the server's replicas:
@@ -14,8 +15,9 @@
 #
 # Configuration comes from .env next to this file, or from the file named by --env-file. Development runs the server and
 # the worker on the host, and uses only the postgres service, with shell/env/.env.dev:
-#   docker compose --file self-hosted/compose.yaml --env-file shell/env/.env.dev up --detach --wait postgres
-# To run the whole stack on an image built from the source instead, add --file local/compose.yaml.
+#   docker compose --file docker/self-hosted/compose.yaml --env-file shell/env/.env.dev up --detach --wait postgres
+# To run the full stack from source, including the development stand-ins, use:
+#   shell/scripts/dev containers --env-file <env file>
 
 # Keep the stack grouped under this project name in Docker Compose and Docker Desktop. COMPOSE_PROJECT_NAME overrides
 # it, which keeps development's PostgreSQL apart from an installation.
@@ -36,6 +38,10 @@ x-protomap-environment: &protomap-environment
   PROTOMAP_ADMIN_PASSWORD: ${PROTOMAP_ADMIN_PASSWORD:-}
   PROTOMAP_SECRET_KEY: ${PROTOMAP_SECRET_KEY:?is required. Run ./install.sh or generate one with openssl rand -hex 32}
   PROTOMAP_ARTIFACT_CACHE_MB: ${PROTOMAP_ARTIFACT_CACHE_MB:-}
+  PROTOMAP_CLIENT_ADDRESS_HEADER: ${PROTOMAP_CLIENT_ADDRESS_HEADER:-}
+  PROTOMAP_PUBLIC_URL: ${PROTOMAP_PUBLIC_URL:-}
+  PROTOMAP_SMTP_URL: ${PROTOMAP_SMTP_URL:-}
+  PROTOMAP_SMTP_FROM: ${PROTOMAP_SMTP_FROM:-}
   PROTOMAP_MODEL_CATALOG_URL: ${PROTOMAP_MODEL_CATALOG_URL:-}
   RUST_LOG: ${RUST_LOG:-warn}
 
