@@ -1,10 +1,10 @@
 # ProtoMap self-hosted.
 #
 # Quick start:
-#   1. ./install.sh (generates .env with secrets and a setup key, starts the services, and installs the CLI)
+#   1. ./scripts/install.sh (generates .env with secrets and a setup key, starts the services, and installs the CLI)
 #   2. Open http://localhost:3300, enter the setup key the installer printed, and name your organization and create its
 #      owner.
-# Upgrade with ./upgrade.sh, start over with ./reset.sh, and remove ProtoMap with ./uninstall.sh.
+# Upgrade with ./scripts/upgrade.sh, and remove ProtoMap with ./scripts/uninstall.sh.
 #
 # The services run the image hounddogai/protomap from Docker Hub, the latest release unless PROTOMAP_VERSION names
 # another. The server and the worker scale out; the proxy spreads requests across the server's replicas:
@@ -34,12 +34,12 @@ x-protomap: &protomap
 
 # The configuration of the server and the worker.
 x-protomap-environment: &protomap-environment
-  PROTOMAP_DATABASE_URL: ${PROTOMAP_DATABASE_URL:?is required. Run ./install.sh or provide a postgres:// or postgresql:// URL}
+  PROTOMAP_DATABASE_URL: ${PROTOMAP_DATABASE_URL:?is required. Run ./scripts/install.sh or provide a postgres:// or postgresql:// URL}
   PROTOMAP_SETUP_KEY: ${PROTOMAP_SETUP_KEY:-}
   PROTOMAP_INITIAL_API_KEY_ID: ${PROTOMAP_INITIAL_API_KEY_ID:-}
   PROTOMAP_INITIAL_API_KEY_HASH: ${PROTOMAP_INITIAL_API_KEY_HASH:-}
   PROTOMAP_ADMIN_PASSWORD: ${PROTOMAP_ADMIN_PASSWORD:-}
-  PROTOMAP_SECRET_KEY: ${PROTOMAP_SECRET_KEY:?is required. Run ./install.sh or generate one with openssl rand -hex 32}
+  PROTOMAP_SECRET_KEY: ${PROTOMAP_SECRET_KEY:?is required. Run ./scripts/install.sh or generate one with openssl rand -hex 32}
   PROTOMAP_ARTIFACT_CACHE_MB: ${PROTOMAP_ARTIFACT_CACHE_MB:-}
   PROTOMAP_CLIENT_ADDRESS_HEADER: ${PROTOMAP_CLIENT_ADDRESS_HEADER:-}
   PROTOMAP_PUBLIC_URL: ${PROTOMAP_PUBLIC_URL:-}

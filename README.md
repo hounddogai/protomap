@@ -4,7 +4,7 @@ ProtoMap by HoundDog.ai maps your gRPC services: which services call which, thro
 down to every call site. Run it on your own infrastructure, explore your architecture in its platform, ask its assistant
 what a change would break, and give the same graph to coding agents such as Claude Code.
 
-![The services of a scanned repository, and how they call each other](self-hosted/images/services.png)
+![The services of a scanned repository, and how they call each other](self-hosted/images/service-sphere.png)
 
 ## What you can do
 
@@ -16,7 +16,7 @@ what a change would break, and give the same graph to coding agents such as Clau
 - **Ask the assistant.** It answers from your scans, with file locations, using the AI provider you connect.
 - **Give coding agents the graph.** Over MCP, with your uncommitted changes laid over the shared graph.
 
-![CheckoutService and the services it depends on](self-hosted/images/service.png)
+![CheckoutService and the services it depends on](self-hosted/images/service-detail.png)
 
 ![Every call site of ProductCatalogService/GetProduct](self-hosted/images/call-sites.png)
 
@@ -27,7 +27,7 @@ You need Docker with Compose 2.23.1 or newer, and at least 4 GB of RAM and 20 GB
 ```shell
 git clone https://github.com/hounddogai/protomap
 cd protomap/self-hosted
-./install.sh
+./scripts/install.sh
 ```
 
 Open the address the installer prints, enter the setup key it shows, and create your organization and its owner. The

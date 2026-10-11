@@ -2,7 +2,7 @@
 
 Run ProtoMap in your own environment.
 
-![The services of a scanned repository, and how they call each other](images/services.png)
+![The services of a scanned repository, and how they call each other](images/service-sphere.png)
 
 ## Requirements
 
@@ -14,7 +14,7 @@ Run ProtoMap in your own environment.
 ```shell
 git clone https://github.com/hounddogai/protomap.git
 cd protomap/self-hosted
-./install.sh
+./scripts/install.sh
 ```
 
 The installer will ask you to choose the installation type:
@@ -37,8 +37,18 @@ repository right away:
 protomap scan /path/to/repository
 ```
 
+To install the CLI on other computers and connect coding agents, see the [main README](../README.md).
+
+## Configuration
+
+The installer writes your settings to `.env`, and [`.env.example`](.env.example) explains every setting. After you
+change `.env`, apply it with `docker compose up -d`.
+
+Back up `.env` along with your database. Its `PROTOMAP_SECRET_KEY` encrypts the AI provider API keys that ProtoMap
+stores, which cannot be read without it.
+
 By default, ProtoMap is reachable from other machines on your network over plain HTTP. For anything but a trial, put a
-proxy that serves HTTPS in front of it, set `PROTOMAP_BIND_ADDRESS=127.0.0.1` in `.env`, and run `docker compose up -d`.
+proxy that serves HTTPS in front of it, and set `PROTOMAP_BIND_ADDRESS=127.0.0.1` so that only the proxy can reach it.
 
 ## Upgrade
 
@@ -46,19 +56,15 @@ Upgrading keeps your configuration and data, and also upgrades the CLI. Back up 
 is briefly unavailable while the upgrade runs.
 
 ```shell
-git pull && ./upgrade.sh
+git pull && ./scripts/upgrade.sh
 ```
 
-If the upgrade fails, the previous version starts again. Fix the reported error and run `./upgrade.sh` again.
+ProtoMap runs the latest release unless `PROTOMAP_VERSION` in `.env` names another, such as `1.2.3`. If the upgrade
+fails, the previous version starts again. Fix the reported error and run `./scripts/upgrade.sh` again.
 
-## Reset
-
-Reset deletes your installation and its data, then starts a fresh installation. It does not delete data in your own
-PostgreSQL database.
-
-```shell
-./reset.sh
-```
+The upgrade refuses a release older than the one running. To go back to one, restore the database backup made before
+upgrading from it, set `PROTOMAP_VERSION` in `.env` to that release, then run `docker compose down` and
+`./scripts/upgrade.sh`.
 
 ## Uninstall
 
@@ -66,10 +72,8 @@ Uninstall removes ProtoMap and its data. It keeps the CLI, configuration backups
 PostgreSQL database.
 
 ```shell
-./uninstall.sh
+./scripts/uninstall.sh
 ```
 
-## More
-
-[`OPERATIONS.md`](OPERATIONS.md) covers scaling, accounts, API keys, the CLI on other computers, coding agents, and AI
-providers.
+To start over with a fresh installation, uninstall, then run `./scripts/install.sh` again. With your own PostgreSQL,
+use a new or empty database.
