@@ -1,48 +1,75 @@
 # ProtoMap Self-Hosted
 
-Run ProtoMap on your own infrastructure with Docker Compose. Its platform shows your gRPC services and how they connect,
-and its assistant answers questions about them from your scans.
+Run ProtoMap in your own environment.
 
 ![The services of a scanned repository, and how they call each other](images/services.png)
 
+## Requirements
+
+- Docker with Compose 2.23.1 or newer
+- At least 4 GB of RAM and 20 GB of disk space
+
 ## Installation
 
-You need Docker with Compose 2.23.1 or newer, and at least 4 GB of RAM and 20 GB of disk space.
-
 ```shell
-git clone https://github.com/hounddogai/protomap
+git clone https://github.com/hounddogai/protomap.git
 cd protomap/self-hosted
 ./install.sh
 ```
 
-The installer asks whether to run PostgreSQL in Docker, for a trial, or to use your own PostgreSQL 18 or newer, and
-which port to serve on, 3300 by default. It writes the configuration with its secrets to `.env`, pulls the image, and
-starts the services.
+The installer will ask you to choose the installation type:
 
-Then open `http://<this computer>:3300`, enter the setup key the installer printed, and create your organization and its
-owner. For anything but a local trial, put a proxy that ends TLS in front of the server.
+1. **Trial:** The quickest way to try ProtoMap. PostgreSQL is set up locally for you.
+2. **Production:** Connects ProtoMap to your own PostgreSQL 18 database. This option requires more setup and
+   maintenance.
 
-## AI integration
+When the installation finishes:
 
-- **The assistant.** The setup connects an AI provider with your own API key, such as Anthropic, OpenAI, Google, Amazon
-  Bedrock, or Azure. Admins can connect more in **Settings > AI Agents**. Your code stays on your server;
-  the assistant sends the provider your questions and the graph data it reads to answer them.
-- **Coding agents.** Members install the ProtoMap CLI, log in, and add it to their agent as an MCP server, so the agent
-  reads the graph with their uncommitted changes laid over it. The setup's last step, and the **+** beside
-  **Repositories** in the sidebar, show the commands:
+1. Open the ProtoMap URL printed by the installer, such as `http://localhost:3300`, or this computer's address from
+   another computer.
+2. Enter the one-time setup key printed by the installer.
+3. Create your organization and owner account.
+
+The installer also installs the ProtoMap CLI. In Trial mode, it logs the CLI in as the owner, so you can scan a
+repository right away:
 
 ```shell
-curl -fsSL https://install.protomap.ai | sh
-protomap login --server=http://<this computer>:3300
-claude mcp add protomap -- protomap mcp serve
+protomap scan /path/to/repository
 ```
 
-On a computer without a browser, such as a VM over SSH, `protomap login` prints a code to enter at
-`http://<this computer>:3300/#/cli` in a browser on any computer. Containers and CI set `PROTOMAP_URL` and
-`PROTOMAP_API_KEY` to an API key from **Settings > API Keys** instead.
+By default, ProtoMap is reachable from other machines on your network over plain HTTP. For anything but a trial, put a
+proxy that serves HTTPS in front of it, set `PROTOMAP_BIND_ADDRESS=127.0.0.1` in `.env`, and run `docker compose up -d`.
 
-![Every call site of ProductCatalogService/GetProduct](images/call-sites.png)
+## Upgrade
+
+Upgrading keeps your configuration and data, and also upgrades the CLI. Back up your database first, because ProtoMap
+is briefly unavailable while the upgrade runs.
+
+```shell
+git pull && ./upgrade.sh
+```
+
+If the upgrade fails, the previous version starts again. Fix the reported error and run `./upgrade.sh` again.
+
+## Reset
+
+Reset deletes your installation and its data, then starts a fresh installation. It does not delete data in your own
+PostgreSQL database.
+
+```shell
+./reset.sh
+```
+
+## Uninstall
+
+Uninstall removes ProtoMap and its data. It keeps the CLI, configuration backups, this directory, and your own
+PostgreSQL database.
+
+```shell
+./uninstall.sh
+```
 
 ## More
 
-[`OPERATIONS.md`](OPERATIONS.md) covers the services and scaling, accounts, API keys, the CLI in depth, and upgrades.
+[`OPERATIONS.md`](OPERATIONS.md) covers scaling, accounts, API keys, the CLI on other computers, coding agents, and AI
+providers.

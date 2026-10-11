@@ -1,3 +1,4 @@
-# The configuration install.sh generates, which holds secrets.
+# The configuration install.sh generates, and the backups reset.sh and uninstall.sh keep, which hold secrets.
 .env
 .env.tmp.*
+.env.backup.*

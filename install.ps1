@@ -103,7 +103,14 @@
     # Download beside the destination and rename, so a failed download never replaces a working CLI.
     $Download = Join-Path $Directory ".protomap-$([Guid]::NewGuid().ToString('N')).exe"
     $Sums = Join-Path $Directory ".protomap-$([Guid]::NewGuid().ToString('N')).sums"
+    # Windows PowerShell offers servers only TLS 1.0 and older unless the system's settings say otherwise, and GitHub
+    # refuses them, so TLS 1.2 is offered too while the CLI downloads. The system's default, 0, which older .NET
+    # releases have no name for and PowerShell 7 uses, offers it already.
+    $Protocols = [Net.ServicePointManager]::SecurityProtocol
     try {
+        if ([int]$Protocols -ne 0) {
+            [Net.ServicePointManager]::SecurityProtocol = $Protocols -bor [Net.SecurityProtocolType]::Tls12
+        }
         # What an earlier installation left: a CLI that was running as it was replaced, or a download it did not finish.
         Get-ChildItem -LiteralPath $Directory -Filter '.protomap-*' -Force |
             Remove-Item -Force -ErrorAction SilentlyContinue
@@ -147,6 +154,7 @@
         }
     } finally {
         Remove-Item -LiteralPath $Download, $Sums -Force -ErrorAction SilentlyContinue
+        [Net.ServicePointManager]::SecurityProtocol = $Protocols
         $Lock.Dispose()
     }
     Write-Host "Installed $Release to $Binary."

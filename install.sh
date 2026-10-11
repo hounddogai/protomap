@@ -57,6 +57,21 @@ case "$(uname -m)" in
     aarch64 | arm64) arch=aarch64 ;;
     *) fail "The ProtoMap CLI runs on x86_64 and aarch64; this computer is $(uname -m)." ;;
 esac
+# The Linux builds need the GNU C library, which Alpine and other Linux distributions built on musl lack, from version
+# 2.28 on, which older distributions, such as CentOS 7 and Ubuntu 18.04, lack too.
+if [ "${os}" = linux ]; then
+    if ldd --version 2>&1 | grep -qi musl; then
+        fail 'The ProtoMap CLI for Linux needs the GNU C library (glibc), and this computer has musl instead, as' \
+            'Alpine Linux does. Install it on a Linux with glibc, such as Debian, Ubuntu, or RHEL, or in a container' \
+            'of one.'
+    fi
+    glibc="$(getconf GNU_LIBC_VERSION 2> /dev/null | awk '{ print $2 }')"
+    if [ -n "${glibc}" ] && ! printf '%s\n' "${glibc}" | awk -F. '{ exit !($1 > 2 || $1 == 2 && $2 >= 28) }'; then
+        fail "The ProtoMap CLI for Linux needs the GNU C library (glibc) 2.28 or later, and this computer has" \
+            "${glibc}. Install it on a newer Linux, such as RHEL 8, Debian 10, or Ubuntu 20.04, or in a container of" \
+            'one.'
+    fi
+fi
 command -v curl > /dev/null 2>&1 || fail 'Install curl, then run this again.'
 # Both print the checksum of standard input first: sha256sum on Linux, and shasum on macOS.
 if command -v sha256sum > /dev/null 2>&1; then
@@ -120,8 +135,21 @@ case ":${PATH}:" in
     *":${directory}:"*) command="protomap" ;;
     *)
         command="$(quote "${directory}/protomap")"
-        printf '%s\n' "${directory} is not on your PATH. Add it to your shell's profile, such as with:" \
-            "  echo 'export PATH=\"${directory}:\$PATH\"' >> ~/.profile"
+        # The profile of the user's shell: zsh and fish do not read ~/.profile, and bash reads ~/.bashrc in Linux
+        # terminals, which start shells that are not login shells, and ~/.bash_profile in macOS's, which start them.
+        case "${SHELL:-}" in
+            */zsh) profile=.zshrc ;;
+            */bash) if [ "${os}" = macos ]; then profile=.bash_profile; else profile=.bashrc; fi ;;
+            */fish) profile='' ;;
+            *) profile=.profile ;;
+        esac
+        if [ -n "${profile}" ]; then
+            printf '%s\n' "${directory} is not on your PATH. Add it to your shell's profile, such as with:" \
+                "  echo 'export PATH=\"${directory}:\$PATH\"' >> ~/${profile}"
+        else
+            printf '%s\n' "${directory} is not on your PATH. Add it in fish with:" \
+                "  fish_add_path $(quote "${directory}")"
+        fi
         ;;
 esac
 printf '%s\n' "Log in with: ${command} login --server=<your ProtoMap server's address>" \

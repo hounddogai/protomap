@@ -1,82 +1,36 @@
 #!/usr/bin/env bash
 #
-# Installs ProtoMap self-hosted: generates the configuration with secrets and a setup key, pulls the image from Docker
-# Hub, and starts it. The configuration goes to .env next to compose.yaml, or to the file named by --env-file, which
-# every later docker compose command then needs too.
-#
-# Usage: ./install.sh [--env-file PATH]
+# Interactive installer for ProtoMap self-hosted: writes .env with secrets and a setup key, starts the services, and
+# installs the ProtoMap CLI of the same release.
 
 set -euo pipefail
 
-env_temp=""
-cleanup() {
-    if [ -n "$env_temp" ]; then
-        rm -f "$env_temp"
-    fi
-}
-trap cleanup EXIT
-
-say() { printf '%s\n' "$*"; }
-heading() { printf '\n%s\n' "$*"; }
-fail() {
-    printf 'ERROR: %s\n' "$*" >&2
-    exit 1
-}
-
-# Prints $1 random bytes, base64url-encoded without padding or newlines.
-generate_secret() {
-    if command -v openssl > /dev/null 2>&1; then
-        openssl rand -base64 "$1" | tr -d '\n=' | tr '+/' '-_'
-    else
-        head -c "$1" /dev/urandom | base64 | tr -d '\n=' | tr '+/' '-_'
-    fi
-}
-
-env_file=""
-case "${1:-}" in
-    "") ;;
-    --env-file)
-        [ "$#" -eq 2 ] && [ -n "$2" ] || fail "Usage: ./install.sh [--env-file PATH]"
-        env_file="$2"
-        ;;
-    *) fail "Usage: ./install.sh [--env-file PATH]" ;;
-esac
-# A relative path starts from where the installer was run, not from its own folder.
-case "$env_file" in
-    "" | /*) ;;
-    *) env_file="$PWD/$env_file" ;;
-esac
 cd "$(dirname "$0")"
-env_file="${env_file:-$PWD/.env}"
-env_label=".env"
-compose_command="docker compose"
-if [ "$env_file" != "$PWD/.env" ]; then
-    env_label="$env_file"
-    compose_command="docker compose --env-file $env_file"
+# shellcheck source=lib.sh
+source ./lib.sh
+
+env_temp=""
+trap '[ -z "$env_temp" ] || rm -f "$env_temp"' EXIT
+
+require_docker
+if is_installed; then
+    fail "ProtoMap is already installed. Run ./upgrade.sh to upgrade it or ./reset.sh to start over."
 fi
 
-heading "CHECK REQUIREMENTS"
-command -v docker > /dev/null 2>&1 || fail "Docker is required. Install it first: https://docs.docker.com/get-docker/"
-docker compose version > /dev/null 2>&1 || fail "Docker Compose v2 is required. Update Docker or install the plugin."
-if [ -e "$env_file" ] || [ -L "$env_file" ]; then
-    fail "ProtoMap is already installed here. Delete ${env_label} to install again."
-fi
-[ -d "$(dirname "$env_file")" ] || fail "The folder of ${env_label} does not exist."
-
-heading "SELECT INSTALLATION"
-say "1) Trial: uses the bundled PostgreSQL."
+heading "CHOOSE INSTALLATION"
+say "1) Trial: uses the bundled PostgreSQL and sets up the CLI on this computer."
 say "2) Production: uses your PostgreSQL 18 or newer."
 while :; do
-    read -r -p "Select 1 or 2 [default: 1]: " install_type
-    install_type="${install_type:-1}"
+    prompt "Choose 1 or 2 [default: 1]:"
+    install_type="${REPLY:-1}"
     case "$install_type" in
         1 | 2) break ;;
         *) say "Enter 1 or 2." ;;
     esac
 done
 while :; do
-    read -r -p "Port [default: 3300]: " port
-    port="${port:-3300}"
+    prompt "Port [default: 3300]:"
+    port="${REPLY:-3300}"
     case "$port" in
         *[!0-9]* | "") say "Enter a port from 1 to 65535." ;;
         *)
@@ -89,29 +43,43 @@ while :; do
 done
 database_url=""
 if [ "$install_type" = "2" ]; then
+    say ""
     say "Enter your PostgreSQL URL in the form postgres://USER:PASSWORD@HOST:PORT/DATABASE"
     while :; do
-        read -r -s -p "PostgreSQL URL: " database_url
-        say ""
+        prompt "PostgreSQL URL:" secret
+        database_url="$REPLY"
         case "$database_url" in
             *"'"*) say "Percent-encode single quotes in the URL." ;;
-            postgres://* | postgresql://*) break ;;
+            postgres://* | postgresql://*)
+                is_loopback_url "$database_url" || break
+                say "ProtoMap runs in containers, where localhost is the container itself, not this computer."
+                say "Enter the address of the database's server on the network instead. A PostgreSQL on this computer"
+                say "must also listen on that address and accept connections from Docker's networks."
+                ;;
             *) say "Enter a URL that starts with postgres:// or postgresql://." ;;
         esac
     done
 fi
+url="http://localhost:${port}"
 
-heading "GENERATE SECRETS"
+heading "GENERATE CONFIGURATION"
+say "Creating $(pwd)/.env with new secrets and a one-time setup key..."
 setup_key="$(generate_secret 32)"
-admin_password="$(generate_secret 32)"
-secret_key="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+api_key=""
+api_key_id=""
+if [ "$install_type" = "1" ]; then
+    # The CLI on this computer acts as the owner with this key once setup creates the owner. The server keeps only its
+    # hash.
+    api_key="hd_$(generate_secret 32)"
+    api_key_id="$(generate_uuid)"
+fi
 umask 077
-env_temp="$(mktemp "$(dirname "$env_file")/.env.tmp.XXXXXX")"
+env_temp="$(mktemp "$(pwd)/.env.tmp.XXXXXX")"
 {
     printf '# Generated by install.sh. Keep this file private: it contains secrets.\n\n'
     printf 'PROTOMAP_SETUP_KEY=%s\n' "$setup_key"
-    printf 'PROTOMAP_ADMIN_PASSWORD=%s\n' "$admin_password"
-    printf 'PROTOMAP_SECRET_KEY=%s\n' "$secret_key"
+    printf 'PROTOMAP_ADMIN_PASSWORD=%s\n' "$(generate_secret 32)"
+    printf 'PROTOMAP_SECRET_KEY=%s\n' "$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
     printf 'PROTOMAP_PORT=%s\n\n' "$port"
     if [ "$install_type" = "1" ]; then
         printf 'COMPOSE_PROFILES=postgres\n'
@@ -120,36 +88,52 @@ env_temp="$(mktemp "$(dirname "$env_file")/.env.tmp.XXXXXX")"
         printf 'POSTGRES_DB=protomap\n'
         # Compose expands these references when it reads the file.
         # shellcheck disable=SC2016
-        printf 'PROTOMAP_DATABASE_URL=%s\n' 'postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}'
+        printf 'PROTOMAP_DATABASE_URL=%s\n\n' \
+            'postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}'
+        printf 'PROTOMAP_INITIAL_API_KEY_ID=%s\n' "$api_key_id"
+        printf 'PROTOMAP_INITIAL_API_KEY_HASH=%s\n' "$(hash_secret "$api_key")"
     else
         printf "PROTOMAP_DATABASE_URL='%s'\n" "$database_url"
     fi
 } > "$env_temp"
-mv "$env_temp" "$env_file"
+mv "$env_temp" .env
 env_temp=""
 
-url="http://localhost:${port}"
-heading "SETUP KEY"
-say "Open ${url}, or this computer's address from another computer, enter this setup key, which is also in"
-say "${env_label}, and name your organization and create its owner:"
-say "  ${setup_key}"
+heading "START PROTOMAP"
+say "Pulling the images and waiting for ProtoMap to start..."
+docker compose pull --quiet || fail "Cannot pull the images. Fix the reported error and run ./reset.sh."
+if ! docker compose up --detach --wait; then
+    show_server_log
+    fail "ProtoMap did not start. Fix the error above, such as in the PostgreSQL URL, and run ./reset.sh to install" \
+        "again."
+fi
+release="$(server_release)"
+say "ProtoMap ${release} is running at ${url}."
 
-heading "START"
-say "Pulling the image and starting the services."
-if ! docker compose --env-file "$env_file" up --detach --wait; then
-    fail "The services did not start. Fix the reported error and run: ${compose_command} up --detach --wait"
+install_cli "$release"
+if [ "$install_type" = "1" ]; then
+    mkdir -p "$cli_data_dir"
+    chmod 700 "$cli_data_dir"
+    if [ -e "$cli_login" ]; then
+        backup="${cli_login}.backup.$(date +%Y%m%d-%H%M%S)"
+        mv "$cli_login" "$backup"
+        say "Moved the CLI's previous login to ${backup}."
+    fi
+    printf '{"url":"%s","api_key":"%s","key_id":"%s"}\n' "$url" "$api_key" "$api_key_id" > "$cli_login"
+    say "Logged the CLI in to ${url}. It acts as the owner you create next."
 fi
 
-heading "DONE"
-say "ProtoMap is running at ${url}."
-say ""
-say "Members scan repositories with the ProtoMap CLI on their computers: they install it as the platform shows,"
-say "log in with \"protomap login --server=<this server's address>\", and run \"protomap scan\" in their"
-say "repositories. Without a browser, protomap login prints a code to enter at <this server's address>/#/cli."
-say "Continuous integration scans with an organization API key, which admins create in the platform's settings:"
-say "  export PROTOMAP_URL=${url} PROTOMAP_API_KEY=<API key>"
-say "  protomap scan /path/to/repository"
-say ""
-say "The job queue dashboard is at http://127.0.0.1:8801 on this computer only, with the user admin and"
-say "PROTOMAP_ADMIN_PASSWORD from ${env_label}. To open it from another computer, forward its port there first:"
-say "  ssh -L 8801:127.0.0.1:8801 <this computer>"
+heading "NEXT STEPS"
+say "1. Open ${url}, or this computer's address from another computer, and create your organization and owner."
+if [ -t 1 ]; then
+    say "2. Enter the one-time setup key: ${setup_key}"
+else
+    say "2. Enter the one-time setup key PROTOMAP_SETUP_KEY from .env."
+fi
+if [ "$install_type" = "1" ]; then
+    say "3. Scan a repository: ${cli} scan /path/to/repository"
+else
+    say "3. Log in to the CLI, then scan a repository:"
+    say "   ${cli} login --server=<this server's address>"
+    say "   ${cli} scan /path/to/repository"
+fi

@@ -1,29 +1,32 @@
 # Operating ProtoMap Self-Hosted
 
-What [`README.md`](README.md) leaves out: the services, accounts, API keys, the CLI, and upgrades.
+What [`README.md`](README.md) leaves out: the services, accounts, API keys, the CLI, the assistant, and upgrades.
 
 ## Services
 
 The stack is the Docker Compose project `protomap`:
 
-| Service    | Role                                                                                     |
-| ---------- | ---------------------------------------------------------------------------------------- |
-| `server`   | Runs `protomap-server`: the API and the platform UI.                                     |
-| `worker`   | Runs `protomap-worker`: background jobs and the job queue dashboard.                     |
+| Service    | Role                                                                                    |
+|------------|-----------------------------------------------------------------------------------------|
+| `server`   | Runs `protomap-server`: the API and the platform UI.                                    |
+| `worker`   | Runs `protomap-worker`: background jobs and the job queue dashboard.                    |
 | `proxy`    | Runs Caddy, which publishes the port and spreads requests across the server's replicas. |
-| `postgres` | The bundled database of trial installations.                                             |
+| `postgres` | The bundled database of trial installations.                                            |
 
-The services run the latest release unless `PROTOMAP_VERSION` names another, such as `1.2.3`. One server and one
-worker run by default. Both scale out, since they keep their state in PostgreSQL and each job runs once:
+The services run the latest release unless `PROTOMAP_VERSION` in `.env` names another, such as `1.2.3`. A release named
+only on the command line lasts until the next `docker compose up` without it, which recreates the services with the
+release `.env` names. One server and one worker run by default. Both scale out, since they keep their state in
+PostgreSQL and each job runs once:
 
 ```shell
 docker compose up --detach --wait --scale server=3 --scale worker=2
 ```
 
-When `PROTOMAP_ADMIN_PASSWORD` is set, the workers serve the job queue dashboard at `http://127.0.0.1:8801`, with the
-user `admin`; set `PROTOMAP_DASHBOARD_PORT` to publish it on another port. The dashboard and the bundled PostgreSQL
-listen only on 127.0.0.1 of the Docker host, the computer that runs the stack, so no other computer reaches them. To
-open the dashboard from your own computer, forward its port over SSH, then open `http://127.0.0.1:8801` there:
+When `PROTOMAP_ADMIN_PASSWORD` is set to at least 8 characters, the workers serve the job queue dashboard at
+`http://127.0.0.1:8801`, with the user `admin`; set `PROTOMAP_DASHBOARD_PORT` to publish it on another port. With a
+shorter password, the workers log an error and run without it. The dashboard and the bundled PostgreSQL listen only on
+127.0.0.1 of the Docker host, the computer that runs the stack, so no other computer reaches them. To open the dashboard
+from your own computer, forward its port over SSH, then open `http://127.0.0.1:8801` there:
 
 ```shell
 ssh -L 8801:127.0.0.1:8801 <Docker host>
@@ -71,23 +74,24 @@ accepts only API keys an admin pastes, never credentials of the machine it runs 
 
 Members install the ProtoMap CLI from its GitHub releases, for Linux, macOS, and Windows on x86_64 and aarch64; the
 Linux builds need glibc 2.28 or newer. The platform's setup steps show the command, which installs the release of the
-server's own version, such as 0.2.1, to `~/.local/bin` (or `PROTOMAP_INSTALL_DIR`) after checking it against the
+server's own version, such as 0.1.0, to `~/.local/bin` (or `PROTOMAP_INSTALL_DIR`) after checking it against the
 release's `SHA256SUMS`:
 
 ```shell
-curl -fsSL https://install.protomap.ai | sh -s -- 0.2.1
+curl -fsSL https://install.protomap.ai | sh -s -- 0.1.0
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((irm https://install.protomap.ai/install.ps1))) 0.2.1
+& ([scriptblock]::Create((irm https://install.protomap.ai/install.ps1))) 0.1.0
 ```
 
 Members can also download the binaries from the [releases page](https://github.com/hounddogai/protomap/releases), or
 build the CLI from source with `cargo build --release --package protomap-cli`.
 
-Members sign the CLI in to the server and scan their repositories; every scan is uploaded as the member:
+On the computer that runs a trial installation, the installer has done this already. Elsewhere, members sign the CLI
+in to the server and scan their repositories; every scan is uploaded as the member:
 
 ```shell
 protomap login --server=http://localhost:3300
@@ -122,8 +126,28 @@ only that member's queries and chats show over the shared graph; an organization
 queries on the server read the current graph version with the requesting member's latest scans laid over it. A scan
 fails when the server cannot be reached.
 
-## Upgrade and removal
+## The assistant
 
-Run `git pull` for the latest Compose project, then `docker compose pull` and `docker compose up --detach --wait`,
-after setting `PROTOMAP_VERSION` to the new release if you pinned one. The server applies database migrations when it
-starts. To remove ProtoMap and its data, run `docker compose down --volumes`; this does not touch your own PostgreSQL.
+The setup connects an AI provider with your own API key, such as Anthropic, OpenAI, Google, Amazon Bedrock, or Azure.
+Admins can connect more in **Settings > AI Agents**. Your code stays on your server; the assistant sends the provider
+your questions and the graph data it reads to answer them.
+
+## Install, upgrade, reset, and uninstall
+
+- `./install.sh` writes `.env`, starts the services, and installs the CLI of the server's release on this computer. A
+  trial installation also writes the CLI's login, `~/.protomap/login.json`, with a personal key that the server gives
+  the owner when setup creates it. The server keeps only the key's hash, in `PROTOMAP_INITIAL_API_KEY_HASH`.
+- `./upgrade.sh` pulls the release `PROTOMAP_VERSION` names, the latest by default, stops the services, migrates the
+  database with the new release, and starts the services with the same number of servers and workers. It then
+  upgrades the CLI on this computer to the same release. Run `git pull` first, so the Compose project matches the
+  release. When the migration fails, nothing changes and the previous release starts again. ProtoMap changes its
+  database schema in place, so a release whose schema differs from the database's refuses it; to run that release,
+  start over with `./reset.sh`. It refuses a release older than the one running; to go back to one, restore the
+  database backup made before upgrading from it, set `PROTOMAP_VERSION` in `.env` to that release, then run
+  `docker compose down` and `./upgrade.sh`.
+- `./reset.sh` deletes the containers and the bundled PostgreSQL's data, moves `.env` and the CLI's login to backups,
+  and runs `./install.sh`. It deletes every organization, account, and scan, and upgrading never needs it.
+- `./uninstall.sh` does the same without installing again, and keeps the CLI.
+
+Neither reset nor uninstall touches your own PostgreSQL; empty it, or point `PROTOMAP_DATABASE_URL` at a new database,
+before installing again.

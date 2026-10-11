@@ -1,9 +1,10 @@
 # ProtoMap self-hosted.
 #
 # Quick start:
-#   1. ./install.sh (generates .env with secrets and a setup key, pulls the image, and starts the services)
+#   1. ./install.sh (generates .env with secrets and a setup key, starts the services, and installs the CLI)
 #   2. Open http://localhost:3300, enter the setup key the installer printed, and name your organization and create its
 #      owner.
+# Upgrade with ./upgrade.sh, start over with ./reset.sh, and remove ProtoMap with ./uninstall.sh.
 #
 # The services run the image hounddogai/protomap from Docker Hub, the latest release unless PROTOMAP_VERSION names
 # another. The server and the worker scale out; the proxy spreads requests across the server's replicas:
@@ -35,6 +36,8 @@ x-protomap: &protomap
 x-protomap-environment: &protomap-environment
   PROTOMAP_DATABASE_URL: ${PROTOMAP_DATABASE_URL:?is required. Run ./install.sh or provide a postgres:// or postgresql:// URL}
   PROTOMAP_SETUP_KEY: ${PROTOMAP_SETUP_KEY:-}
+  PROTOMAP_INITIAL_API_KEY_ID: ${PROTOMAP_INITIAL_API_KEY_ID:-}
+  PROTOMAP_INITIAL_API_KEY_HASH: ${PROTOMAP_INITIAL_API_KEY_HASH:-}
   PROTOMAP_ADMIN_PASSWORD: ${PROTOMAP_ADMIN_PASSWORD:-}
   PROTOMAP_SECRET_KEY: ${PROTOMAP_SECRET_KEY:?is required. Run ./install.sh or generate one with openssl rand -hex 32}
   PROTOMAP_ARTIFACT_CACHE_MB: ${PROTOMAP_ARTIFACT_CACHE_MB:-}
@@ -43,6 +46,7 @@ x-protomap-environment: &protomap-environment
   PROTOMAP_SMTP_URL: ${PROTOMAP_SMTP_URL:-}
   PROTOMAP_SMTP_FROM: ${PROTOMAP_SMTP_FROM:-}
   PROTOMAP_MODEL_CATALOG_URL: ${PROTOMAP_MODEL_CATALOG_URL:-}
+  PROTOMAP_API_DOCS: ${PROTOMAP_API_DOCS:-}
   RUST_LOG: ${RUST_LOG:-warn}
 
 services:
@@ -141,6 +145,9 @@ configs:
       # The API and the platform UI, spread across the server's replicas, which Docker's DNS lists. Every replica
       # serves every request: browsers get their events from whichever replica they reach.
       :3300 {
+      	# Compresses the JSON and the platform's files for browsers that accept it. Caddy never compresses a WebSocket
+      	# handshake, sends a server-sent event stream as it is written, and flushes what it compressed with each flush.
+      	encode zstd gzip
       	reverse_proxy {
       		dynamic a server 8800 {
       			refresh 5s
