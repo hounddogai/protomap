@@ -86,4 +86,4 @@ protomap scan /path/to/repository
 ```
 
 A personal key acts as you, and also serves `protomap mcp serve` to an agent. An organization key, which admins create
-for continuous integration, scans without a member.
+for continuous integration, scans without a user.

@@ -41,6 +41,8 @@ x-protomap-environment: &protomap-environment
   PROTOMAP_ADMIN_PASSWORD: ${PROTOMAP_ADMIN_PASSWORD:-}
   PROTOMAP_SECRET_KEY: ${PROTOMAP_SECRET_KEY:?is required. Run ./scripts/install.sh or generate one with openssl rand -hex 32}
   PROTOMAP_ARTIFACT_CACHE_MB: ${PROTOMAP_ARTIFACT_CACHE_MB:-}
+  PROTOMAP_DATABASE_CONNECTIONS: ${PROTOMAP_DATABASE_CONNECTIONS:-}
+  PROTOMAP_MAX_RESPONSES: ${PROTOMAP_MAX_RESPONSES:-}
   PROTOMAP_CLIENT_ADDRESS_HEADER: ${PROTOMAP_CLIENT_ADDRESS_HEADER:-}
   PROTOMAP_PUBLIC_URL: ${PROTOMAP_PUBLIC_URL:-}
   PROTOMAP_SMTP_URL: ${PROTOMAP_SMTP_URL:-}
@@ -137,8 +139,10 @@ configs:
       	persist_config off
       	servers {
       		# Pass on the X-Forwarded-Proto and X-Forwarded-Host of a proxy that ends TLS in front of the stack, which
-      		# the server reads to mark session cookies Secure and to write its install scripts' address.
-      		trusted_proxies static 0.0.0.0/0 ::/0
+      		# the server reads to mark session cookies Secure and to write its install scripts' address. Only proxies
+      		# on private networks or the Docker host are trusted, and those PROTOMAP_TRUSTED_PROXIES adds, so a client
+      		# that reaches the published port directly cannot set them.
+      		trusted_proxies static private_ranges ${PROTOMAP_TRUSTED_PROXIES:-}
       	}
       }
 
