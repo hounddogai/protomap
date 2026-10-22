@@ -83,9 +83,9 @@ repository as files are saved, so the agent sees your changes laid over the grap
 claude mcp add protomap -- protomap mcp serve
 ```
 
-**Scan a Repository** in the platform, such as from its search, gives the command for Codex, Gemini CLI, Copilot CLI,
-VS Code, OpenCode, Amp, Droid, and Qwen Code, and the JSON for other agents, which run `protomap mcp serve` over
-standard input and output. The agent reads the graph as you, so log in first, or use a personal API key.
+**Scan a Repository** in the platform's sidebar gives the command for Codex, Gemini CLI, Copilot CLI, VS Code,
+OpenCode, Amp, Droid, and Qwen Code, and the JSON for other agents, which run `protomap mcp serve` over standard input
+and output. The agent reads the graph as you, so log in first, or use a personal API key.
 
 ## Containers, CI, and other automation
 
