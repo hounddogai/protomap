@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
 #
-# Interactive installer for ProtoMap self-hosted: writes .env with secrets and a setup key, starts the services, and
+# Interactive installer for ProtoMap Server: writes .env with secrets and a setup key, starts the services, and
 # installs the ProtoMap CLI of the same release.
 
 set -euo pipefail
 
-# Run from the folder with compose.yaml and .env, the parent of this script's folder.
-cd "$(dirname "$0")/.."
+# This script's folder, and the folder above it with compose.yaml and .env, as the command that ran the script names
+# them, such as ./self-hosted/scripts and ./self-hosted from the root of the clone, so the commands and files the
+# script names work from where it ran.
+scripts="$(dirname "$0")"
+folder="$(dirname "$scripts")"
+[ "$scripts" != . ] || folder=..
+# Run from the folder with compose.yaml and .env.
+cd "$folder"
 
-color_heading=""
+color_bold=""
+color_done=""
 color_error=""
 color_prompt=""
 color_reset=""
 if { [ -t 1 ] || [ -t 2 ]; } && [ "${TERM:-dumb}" != "dumb" ] && [ -z "${NO_COLOR:-}" ]; then
-    color_heading=$'\033[1;36m'
+    color_bold=$'\033[1m'
+    color_done=$'\033[0;32m'
     color_error=$'\033[0;31m'
     color_prompt=$'\033[1;35m'
     color_reset=$'\033[0m'
@@ -23,17 +31,20 @@ fi
 cli_data_dir="${PROTOMAP_DATA_DIR:-${HOME}/.protomap}"
 cli_login="${cli_data_dir}/login.json"
 
-say() { printf '%s\n' "$*"; }
-heading() { printf '\n%s%s%s\n' "$color_heading" "$*" "$color_reset"; }
+# Prints each argument as a line.
+say() { printf '%s\n' "$@"; }
+title() { printf '%s%s%s\n' "$color_bold" "$1" "$color_reset"; }
+# Prints each argument as a line of an error, and stops.
 fail() {
-    printf '%sERROR:%s %s\n' "$color_error" "$color_reset" "$*" >&2
+    printf '%sError:%s %s\n' "$color_error" "$color_reset" "$1" >&2
+    shift
+    [ "$#" -eq 0 ] || printf '%s\n' "$@" >&2
     exit 1
 }
 
 # Asks $1 and leaves the answer in REPLY, which is empty when there is no input. With $2 set to "secret", the answer is
 # not shown as it is typed.
 prompt() {
-    say ""
     REPLY=""
     if [ "${2:-}" = "secret" ]; then
         read -r -s -p "${color_prompt}$1${color_reset} " REPLY || true
@@ -41,6 +52,24 @@ prompt() {
     else
         read -r -p "${color_prompt}$1${color_reset} " REPLY || true
     fi
+}
+
+# Says $1, runs the command after it with its output kept aside, and says done, or failed with the output.
+step() {
+    local log status=0
+    printf '%s... ' "$1"
+    shift
+    log="$(mktemp)"
+    "$@" > "$log" 2>&1 < /dev/null || status=$?
+    if [ "$status" -eq 0 ]; then
+        say "${color_done}done${color_reset}"
+    else
+        say "${color_error}failed${color_reset}" ""
+        cat "$log"
+        say ""
+    fi
+    rm -f "$log"
+    return "$status"
 }
 
 # Succeeds when the PostgreSQL URL $1 names a loopback host, such as localhost, which in ProtoMap's containers is the
@@ -88,7 +117,7 @@ hash_secret() {
     fi
 }
 
-# Prints the release of ProtoMap that compose.yaml runs, from its image's label. Run after the image is pulled.
+# Prints the release of ProtoMap Server that compose.yaml runs, from its image's label. Run after the image is pulled.
 server_release() {
     local images image
     images="$(docker compose config --images)"
@@ -97,62 +126,46 @@ server_release() {
 }
 
 # Installs release $1 of the ProtoMap CLI, the server's, so the two speak the same API. It replaces the CLI found on
-# PATH, or else installs to ~/.local/bin, and checks that the installed CLI runs. Keep it in step with upgrade.sh.
+# PATH, or else installs to ~/.local/bin, which the CLI's installer puts on the PATH in the profile of the user's shell,
+# and says where it went. Keep it in step with upgrade.sh.
 install_cli() {
-    heading "INSTALL THE PROTOMAP CLI"
-    local existing directory profile
+    local existing directory
     existing="$(command -v protomap || true)"
     directory="${existing:+$(dirname "$existing")}"
     directory="${directory:-${HOME}/.local/bin}"
     # The folders the CLI's installer creates are for everyone to read, whatever the caller's umask.
     (
         umask 022
-        curl -fsSL https://install.protomap.ai | PROTOMAP_INSTALL_DIR="$directory" sh -s -- "$1" > /dev/null
-    ) ||
-        fail "Cannot install ProtoMap CLI $1. Install it with: curl -fsSL https://install.protomap.ai | sh -s -- $1"
-    cli="${directory}/protomap"
-    cli_version="$("$cli" --version)" || fail "The ProtoMap CLI was installed at ${cli} but does not run."
-    say "Installed ${cli_version} at ${cli}."
+        curl -fsSL https://protomap.ai/install.sh |
+            PROTOMAP_INSTALL_DIR="$directory" PROTOMAP_INSTALL_BRIEF=1 sh -s -- "$1"
+    ) || fail "Cannot install ProtoMap CLI $1. Install it with:" \
+        "  curl -fsSL https://protomap.ai/install.sh | sh -s -- $1"
+    "${directory}/protomap" --version > /dev/null 2>&1 ||
+        fail "ProtoMap CLI was installed, but it does not run:" "  ${directory}/protomap"
+    # Outside the PATH of this terminal, the CLI runs in the next one, which reads the profile it went on the PATH in.
     case ":${PATH}:" in
-        *":${directory}:"*) cli="protomap" ;;
-        *)
-            # The profile of the user's shell, as the CLI's installer picks it: zsh and fish do not read ~/.profile,
-            # and bash reads ~/.bashrc in Linux terminals and ~/.bash_profile in macOS's.
-            case "${SHELL:-}" in
-                */zsh) profile=.zshrc ;;
-                */bash) if [ "$(uname -s)" = Darwin ]; then profile=.bash_profile; else profile=.bashrc; fi ;;
-                */fish) profile="" ;;
-                *) profile=.profile ;;
-            esac
-            if [ -n "$profile" ]; then
-                say "${directory} is not on your PATH. Add it to your shell's profile, such as with:"
-                say "  echo 'export PATH=\"${directory}:\$PATH\"' >> ~/${profile}"
-            else
-                say "${directory} is not on your PATH. Add it in fish with:"
-                say "  fish_add_path '${directory}'"
-            fi
-            ;;
+        *":${directory}:"*) cli_ready=1 ;;
+        *) cli_ready="" ;;
     esac
 }
 
 env_temp=""
 trap '[ -z "$env_temp" ] || rm -f "$env_temp"' EXIT
 
-heading "CHECK REQUIREMENTS"
-say "Checking Docker, Docker Compose, and curl..."
+title "Installing ProtoMap Server..."
 command -v docker > /dev/null 2>&1 ||
-    fail "Docker is required but was not found. Install it first: https://docs.docker.com/get-docker/"
+    fail "Docker is required, and it was not found." "Install Docker first: https://docs.docker.com/get-docker/"
 docker compose version > /dev/null 2>&1 ||
-    fail "Docker Compose v2 is required but was not found. Update Docker or install the Compose plugin."
-command -v curl > /dev/null 2>&1 || fail "curl is required to install the ProtoMap CLI."
+    fail "Docker Compose v2 is required, and it was not found." "Update Docker, or install Docker Compose."
+command -v curl > /dev/null 2>&1 || fail "curl is required to install ProtoMap CLI."
 if [ -e .env ] || [ -L .env ]; then
-    fail "ProtoMap is already installed. Run ./scripts/upgrade.sh to upgrade it, or ./scripts/uninstall.sh and then" \
-        "./scripts/install.sh to start over."
+    fail "ProtoMap Server is already installed." "To upgrade, run ${scripts}/upgrade.sh." \
+        "To start over, run ${scripts}/uninstall.sh," "then ${scripts}/install.sh."
 fi
 
-heading "CHOOSE INSTALLATION"
-say "1) Trial: uses the bundled PostgreSQL and sets up the CLI on this computer."
-say "2) Production: uses your PostgreSQL 18 or newer."
+say "" "Choose an installation:" \
+    "  1) Trial       Bundled PostgreSQL, with ProtoMap CLI set up" \
+    "  2) Production  Your own PostgreSQL (version 18+)" ""
 while :; do
     prompt "Choose 1 or 2 [default: 1]:"
     install_type="${REPLY:-1}"
@@ -162,7 +175,7 @@ while :; do
     esac
 done
 while :; do
-    prompt "Port [default: 3300]:"
+    prompt "Server port [default: 3300]:"
     port="${REPLY:-3300}"
     case "$port" in
         *[!0-9]* | "") say "Enter a port from 1 to 65535." ;;
@@ -176,18 +189,18 @@ while :; do
 done
 database_url=""
 if [ "$install_type" = "2" ]; then
-    say ""
-    say "Enter your PostgreSQL URL in the form postgres://USER:PASSWORD@HOST:PORT/DATABASE"
+    say "" "Enter your PostgreSQL URL, in this form:" "  postgres://USER:PASSWORD@HOST:PORT/DATABASE" ""
     while :; do
         prompt "PostgreSQL URL:" secret
         database_url="$REPLY"
         case "$database_url" in
-            *"'"*) say "Percent-encode single quotes in the URL." ;;
+            *"'"*) say "Percent-encode single quotes in your URL." ;;
             postgres://* | postgresql://*)
                 is_loopback_url "$database_url" || break
-                say "ProtoMap runs in containers, where localhost is the container itself, not this computer."
-                say "Enter the address of the database's server on the network instead. A PostgreSQL on this computer"
-                say "must also listen on that address and accept connections from Docker's networks."
+                say "ProtoMap Server runs in containers, so localhost won't reach this computer." \
+                    "Enter your database server's network address instead." \
+                    "A PostgreSQL on this computer must also listen on that address," \
+                    "and accept connections from Docker's networks."
                 ;;
             *) say "Enter a URL that starts with postgres:// or postgresql://." ;;
         esac
@@ -195,8 +208,6 @@ if [ "$install_type" = "2" ]; then
 fi
 url="http://localhost:${port}"
 
-heading "GENERATE CONFIGURATION"
-say "Creating $(pwd)/.env with new secrets and a one-time setup key..."
 setup_key="$(generate_secret 32)"
 api_key=""
 api_key_id=""
@@ -232,46 +243,53 @@ env_temp="$(mktemp "$(pwd)/.env.tmp.XXXXXX")"
 mv "$env_temp" .env
 env_temp=""
 
-heading "START PROTOMAP"
-say "Pulling the images and waiting for ProtoMap to start..."
-docker compose pull --quiet ||
-    fail "Cannot pull the images. Fix the reported error, run ./scripts/uninstall.sh, then ./scripts/install.sh."
-if ! docker compose up --detach --wait; then
+say "" "Created ${folder}/.env with secrets and a one-time setup key (keep it safe)."
+
+say ""
+step "Pulling images" docker compose pull --quiet ||
+    fail "Cannot pull images." "Fix that error, then run ${scripts}/uninstall.sh," \
+        "and ${scripts}/install.sh."
+if ! step "Starting ProtoMap Server" docker compose up --detach --wait; then
     # The services' states and the server's last log lines, which say why it did not start, such as a database it
     # cannot reach.
     docker compose ps --all || true
-    heading "SERVER LOG"
+    say "" "Last server log lines:"
     docker compose logs --no-log-prefix --tail 15 server || true
-    fail "ProtoMap did not start. Fix the error above, such as in the PostgreSQL URL, run ./scripts/uninstall.sh," \
-        "then ./scripts/install.sh."
+    say ""
+    fail "ProtoMap Server did not start." "Fix that error, such as in your PostgreSQL URL." \
+        "Then run ${scripts}/uninstall.sh, and ${scripts}/install.sh."
 fi
 release="$(server_release)"
-say "ProtoMap ${release} is running at ${url}."
-
+say "ProtoMap Server ${release} is now running at ${url}."
 install_cli "$release"
 if [ "$install_type" = "1" ]; then
     mkdir -p "$cli_data_dir"
     chmod 700 "$cli_data_dir"
-    if [ -e "$cli_login" ]; then
-        backup="${cli_login}.backup.$(date +%Y%m%d-%H%M%S)"
-        mv "$cli_login" "$backup"
-        say "Moved the CLI's previous login to ${backup}."
-    fi
+    # The CLI acts as the owner that setup creates next, in place of any login it has.
     printf '{"url":"%s","api_key":"%s","key_id":"%s"}\n' "$url" "$api_key" "$api_key_id" > "$cli_login"
-    say "Logged the CLI in to ${url}. It acts as the owner you create next."
+    say "Logged ProtoMap CLI in to ${url}."
 fi
 
-heading "NEXT STEPS"
-say "1. Open ${url}, or this computer's address from another computer, and create your organization and owner."
+say "" "ProtoMap Server is installed. Next:" ""
 if [ -t 1 ]; then
-    say "2. Enter the one-time setup key: ${setup_key}"
+    say "  1. Open ${url} and enter this one-time setup key:" "" "     ${color_bold}${setup_key}${color_reset}" ""
 else
-    say "2. Enter the one-time setup key PROTOMAP_SETUP_KEY from .env."
+    say "  1. Open ${url} and enter the one-time setup key," "     PROTOMAP_SETUP_KEY in ${folder}/.env." ""
 fi
+say "     Then create your organization and its owner." ""
 if [ "$install_type" = "1" ]; then
-    say "3. Scan a repository: ${cli} scan /path/to/repository"
+    if [ -n "$cli_ready" ]; then
+        say "  2. Scan a repository:"
+    else
+        say "  2. Open a new terminal and scan a repository:"
+    fi
+    say "" "     ${color_bold}protomap scan /path/to/repository${color_reset}"
 else
-    say "3. Log in to the CLI, then scan a repository:"
-    say "   ${cli} login --server=<this server's address>"
-    say "   ${cli} scan /path/to/repository"
+    if [ -n "$cli_ready" ]; then
+        say "  2. Log in to ProtoMap Server, and scan a repository:"
+    else
+        say "  2. Open a new terminal, log in to ProtoMap Server, and scan a repository:"
+    fi
+    say "" "     ${color_bold}protomap login --server=${url}${color_reset}" \
+        "     ${color_bold}protomap scan /path/to/repository${color_reset}"
 fi

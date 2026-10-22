@@ -1,6 +1,6 @@
-# ProtoMap Self-Hosted
+# ProtoMap Server
 
-Run ProtoMap in your own environment.
+Run ProtoMap Server in your own environment.
 
 ![The services of a scanned repository, and how they call each other](images/service-sphere.png)
 
@@ -13,9 +13,11 @@ Run ProtoMap in your own environment.
 
 ```shell
 git clone https://github.com/hounddogai/protomap.git
-cd protomap/self-hosted
-./scripts/install.sh
+cd protomap
+./self-hosted/scripts/install.sh
 ```
+
+This README's other commands also run from `protomap`, the root of the clone.
 
 The installer will ask you to choose the installation type:
 
@@ -41,39 +43,41 @@ To install the CLI on other computers and connect coding agents, see the [main R
 
 ## Configuration
 
-The installer writes your settings to `.env`, and [`.env.example`](.env.example) explains every setting. After you
-change `.env`, apply it with `docker compose up -d`.
+The installer writes your settings to `self-hosted/.env`, and [`self-hosted/.env.example`](.env.example) explains every
+setting. After you change `self-hosted/.env`, apply it with `docker compose --file self-hosted/compose.yaml up -d`.
 
-Back up `.env` along with your database. Its `PROTOMAP_SECRET_KEY` encrypts the AI provider API keys that ProtoMap
-stores, which cannot be read without it.
+Back up `self-hosted/.env` along with your database. Its `PROTOMAP_SECRET_KEY` encrypts the AI provider API keys that
+ProtoMap Server stores, which cannot be read without it.
 
-By default, ProtoMap is reachable from other machines on your network over plain HTTP. For anything but a trial, put a
-proxy that serves HTTPS in front of it, and set `PROTOMAP_BIND_ADDRESS=127.0.0.1` so that only the proxy can reach it.
+By default, ProtoMap Server is reachable from other machines on your network over plain HTTP. For anything but a trial,
+put a proxy that serves HTTPS in front of it, and set `PROTOMAP_BIND_ADDRESS=127.0.0.1` so that only the proxy can reach
+it.
 
 ## Upgrade
 
 Upgrading keeps your configuration and data, and also upgrades the CLI. Back up your database first, because ProtoMap
-is briefly unavailable while the upgrade runs.
+Server is briefly unavailable while the upgrade runs.
 
 ```shell
-git pull && ./scripts/upgrade.sh
+git pull && ./self-hosted/scripts/upgrade.sh
 ```
 
-ProtoMap runs the latest release unless `PROTOMAP_VERSION` in `.env` names another, such as `1.2.3`. If the upgrade
-fails, the previous version starts again. Fix the reported error and run `./scripts/upgrade.sh` again.
+ProtoMap Server runs the latest release unless `PROTOMAP_VERSION` in `self-hosted/.env` names another, such as `1.2.3`.
+If the upgrade fails, the previous version starts again. Fix the reported error and run
+`./self-hosted/scripts/upgrade.sh` again.
 
 The upgrade refuses a release older than the one running. To go back to one, restore the database backup made before
-upgrading from it, set `PROTOMAP_VERSION` in `.env` to that release, then run `docker compose down` and
-`./scripts/upgrade.sh`.
+upgrading from it, set `PROTOMAP_VERSION` in `self-hosted/.env` to that release, then run
+`docker compose --file self-hosted/compose.yaml down` and `./self-hosted/scripts/upgrade.sh`.
 
 ## Uninstall
 
-Uninstall removes ProtoMap and its data. It keeps the CLI, configuration backups, this directory, and your own
+Uninstall removes ProtoMap Server and its data. It keeps the CLI, configuration backups, the clone, and your own
 PostgreSQL database.
 
 ```shell
-./scripts/uninstall.sh
+./self-hosted/scripts/uninstall.sh
 ```
 
-To start over with a fresh installation, uninstall, then run `./scripts/install.sh` again. With your own PostgreSQL,
-use a new or empty database.
+To start over with a fresh installation, uninstall, then run `./self-hosted/scripts/install.sh` again. With your own
+PostgreSQL, use a new or empty database.

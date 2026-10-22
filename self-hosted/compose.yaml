@@ -1,14 +1,15 @@
-# ProtoMap self-hosted.
+# ProtoMap Server.
 #
-# Quick start:
-#   1. ./scripts/install.sh (generates .env with secrets and a setup key, starts the services, and installs the CLI)
+# Quick start, from the root of the clone:
+#   1. ./self-hosted/scripts/install.sh (generates .env with secrets and a setup key, starts the services, and installs
+#      the CLI)
 #   2. Open http://localhost:3300, enter the setup key the installer printed, and name your organization and create its
 #      owner.
-# Upgrade with ./scripts/upgrade.sh, and remove ProtoMap with ./scripts/uninstall.sh.
+# Upgrade with ./self-hosted/scripts/upgrade.sh, and remove ProtoMap with ./self-hosted/scripts/uninstall.sh.
 #
 # The services run the image hounddogai/protomap from Docker Hub, the latest release unless PROTOMAP_VERSION names
 # another. The server and the worker scale out; the proxy spreads requests across the server's replicas:
-#   docker compose up --detach --wait --scale server=3 --scale worker=2
+#   docker compose --file self-hosted/compose.yaml up --detach --wait --scale server=3 --scale worker=2
 #
 # Set PROTOMAP_PORT to change the published port, and PROTOMAP_BIND_ADDRESS=127.0.0.1 to accept connections only from
 # the Docker host, the computer that runs this stack. The proxy publishes the job queue dashboard on 127.0.0.1 of the
@@ -34,12 +35,12 @@ x-protomap: &protomap
 
 # The configuration of the server and the worker.
 x-protomap-environment: &protomap-environment
-  PROTOMAP_DATABASE_URL: ${PROTOMAP_DATABASE_URL:?is required. Run ./scripts/install.sh or provide a postgres:// or postgresql:// URL}
+  PROTOMAP_DATABASE_URL: ${PROTOMAP_DATABASE_URL:?is required. Run ./self-hosted/scripts/install.sh or provide a postgres:// or postgresql:// URL}
   PROTOMAP_SETUP_KEY: ${PROTOMAP_SETUP_KEY:-}
   PROTOMAP_INITIAL_API_KEY_ID: ${PROTOMAP_INITIAL_API_KEY_ID:-}
   PROTOMAP_INITIAL_API_KEY_HASH: ${PROTOMAP_INITIAL_API_KEY_HASH:-}
   PROTOMAP_ADMIN_PASSWORD: ${PROTOMAP_ADMIN_PASSWORD:-}
-  PROTOMAP_SECRET_KEY: ${PROTOMAP_SECRET_KEY:?is required. Run ./scripts/install.sh or generate one with openssl rand -hex 32}
+  PROTOMAP_SECRET_KEY: ${PROTOMAP_SECRET_KEY:?is required. Run ./self-hosted/scripts/install.sh or generate one with openssl rand -hex 32}
   PROTOMAP_ARTIFACT_CACHE_MB: ${PROTOMAP_ARTIFACT_CACHE_MB:-}
   PROTOMAP_DATABASE_CONNECTIONS: ${PROTOMAP_DATABASE_CONNECTIONS:-}
   PROTOMAP_MAX_RESPONSES: ${PROTOMAP_MAX_RESPONSES:-}
@@ -62,7 +63,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-protomap}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-protomap}
     # Only the Docker host reaches it. Without PROTOMAP_POSTGRES_PORT, Docker picks the port; find it with:
-    # docker compose port postgres 5432
+    # docker compose --file self-hosted/compose.yaml port postgres 5432
     ports:
       - "127.0.0.1:${PROTOMAP_POSTGRES_PORT:-}:5432"
     volumes:

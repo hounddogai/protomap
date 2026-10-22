@@ -1,10 +1,10 @@
 # Installs the ProtoMap CLI on Windows from its GitHub releases, in PowerShell. The latest release:
 #
-#   irm https://install.protomap.ai/install.ps1 | iex
+#   irm https://protomap.ai/install.ps1 | iex
 #
-# Or a version, such as the one a ProtoMap server runs, which its platform's install command names:
+# Or a version, such as the one a ProtoMap server runs:
 #
-#   & ([scriptblock]::Create((irm https://install.protomap.ai/install.ps1))) 0.1.0
+#   & ([scriptblock]::Create((irm https://protomap.ai/install.ps1))) 0.1.0
 #
 # The CLI installs to %LOCALAPPDATA%\protomap\bin, or to PROTOMAP_INSTALL_DIR, and the folder goes first on the user's
 # PATH. Releases have builds for Windows on x86_64 and aarch64, named protomap-windows-<arch>.exe, and a SHA256SUMS file
@@ -23,25 +23,32 @@
     # The progress bar slows downloads in Windows PowerShell several times over.
     $ProgressPreference = 'SilentlyContinue'
 
-    $ScriptUrl = 'https://install.protomap.ai'
+    $Scripts = 'https://protomap.ai'
+    # Bold marks the title and the commands to copy, in a console that shows it.
+    $Bold = ''
+    $Reset = ''
+    if (-not [Console]::IsOutputRedirected -and $Host.UI.SupportsVirtualTerminal -and -not $env:NO_COLOR) {
+        $Bold = "$([char]27)[1m"
+        $Reset = "$([char]27)[0m"
+    }
     # A version is a release's tag, such as 1.2.3 or 1.2.3-beta.1. \z ends the match at the very end, where $ would
     # also allow a line break.
     if ($Version -and $Version -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?\z') {
-        throw "$Version is not a version of the ProtoMap CLI, such as 1.2.3 or 1.2.3-beta.1."
+        throw "$Version is not a version of ProtoMap CLI.`nA version looks like 1.2.3 or 1.2.3-beta.1."
     }
     if ($env:OS -ne 'Windows_NT') {
-        $Command = "curl -fsSL $ScriptUrl | sh"
+        $Command = "curl -fsSL $Scripts/install.sh | sh"
         if ($Version) {
             $Command += " -s -- $Version"
         }
-        throw "This script installs the ProtoMap CLI on Windows. On Linux and macOS, run: $Command"
+        throw "This script installs ProtoMap CLI on Windows.`nOn Linux and macOS, run:`n  $Command"
     }
     # A 32-bit PowerShell on 64-bit Windows finds the computer's architecture in PROCESSOR_ARCHITEW6432.
     $Machine = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
     $Arch = switch ($Machine) {
         'AMD64' { 'x86_64' }
         'ARM64' { 'aarch64' }
-        default { throw "The ProtoMap CLI runs on x86_64 and aarch64; this computer is $Machine." }
+        default { throw "ProtoMap CLI runs on x86_64 and aarch64.`nThis computer is $Machine." }
     }
     $Releases = 'https://github.com/hounddogai/protomap/releases'
     if ($env:PROTOMAP_RELEASES_URL) {
@@ -66,7 +73,7 @@
             if ($Response -and $Response.Value -and [int]$Response.Value.StatusCode -eq 404) {
                 throw $Missing
             }
-            throw "Cannot download $Url`: $($_.Exception.Message)"
+            throw "Cannot download:`n  $Url`n$($_.Exception.Message)"
         }
     }
 
@@ -82,8 +89,8 @@
     }
     # A semicolon splits a PATH's folders, and Windows reads %NAME% in one as a variable.
     if ($Directory -match '[;%]') {
-        throw "A PATH cannot hold $Directory, whose name has a semicolon or a percent sign. Choose another folder " +
-            'with PROTOMAP_INSTALL_DIR.'
+        throw "A PATH cannot hold a folder named with a semicolon or a percent sign:`n  $Directory`n" +
+            'Choose another folder with PROTOMAP_INSTALL_DIR.'
     }
     $Binary = Join-Path $Directory 'protomap.exe'
     # One installation into the folder at a time, so none deletes the files another is using. The lock file goes when
@@ -96,7 +103,7 @@
         $Cause = if ($_.Exception.InnerException) { $_.Exception.InnerException } else { $_.Exception }
         # 32 is ERROR_SHARING_VIOLATION: another installation holds the lock.
         if (($Cause.HResult -band 0xFFFF) -eq 32) {
-            throw "Another installation of the ProtoMap CLI into $Directory is running. Run this again once it ends."
+            throw "Another installation of ProtoMap CLI into $Directory is running.`nRun this again once that installation ends."
         }
         throw
     }
@@ -114,10 +121,11 @@
         # What an earlier installation left: a CLI that was running as it was replaced, or a download it did not finish.
         Get-ChildItem -LiteralPath $Directory -Filter '.protomap-*' -Force |
             Remove-Item -Force -ErrorAction SilentlyContinue
-        Write-Host "Downloading $Release for Windows on $Arch from $Releases"
-        Get-ReleaseFile 'SHA256SUMS' $Sums "Cannot find $Release, or its SHA256SUMS. See the releases at $Releases"
-        Get-ReleaseFile $Asset $Download ("There is no build for Windows on $Arch in $Release. See the releases at " +
-            $Releases)
+        Write-Host "${Bold}Installing ProtoMap CLI...$Reset"
+        Write-Host ''
+        Get-ReleaseFile 'SHA256SUMS' $Sums "Cannot find $Release, or its SHA256SUMS.`nSee releases at:`n  $Releases"
+        Get-ReleaseFile $Asset $Download ("There is no build for Windows on $Arch in $Release.`n" +
+            "See releases at:`n  $Releases")
         # SHA256SUMS lists each file as <checksum>  <name>, or <checksum> *<name> in binary mode.
         $Expected = $null
         foreach ($Line in Get-Content -LiteralPath $Sums) {
@@ -127,12 +135,13 @@
             }
         }
         if (-not $Expected) {
-            throw "The SHA256SUMS of $Release has no checksum for $Asset."
+            throw "SHA256SUMS of $Release has no checksum for $Asset."
         }
         # -ne compares regardless of case, since Get-FileHash answers in upper case.
         if ((Get-FileHash -LiteralPath $Download -Algorithm SHA256).Hash -ne $Expected) {
-            throw "The download of $Asset does not match its checksum in SHA256SUMS, so the installed CLI stays as " +
-                'it was. Run this again; if it fails again, the download is damaged on its way to this computer.'
+            throw "Download of $Asset does not match SHA256SUMS.`n" +
+                "Installed CLI is unchanged.`n" +
+                'Run this again. A repeated failure means downloads get damaged in transit.'
         }
         # Windows cannot replace a program while it runs, such as the CLI a coding agent runs as its MCP server, but it
         # can rename it. The running CLI moves aside, and the next installation deletes it.
@@ -157,7 +166,26 @@
         [Net.ServicePointManager]::SecurityProtocol = $Protocols
         $Lock.Dispose()
     }
-    Write-Host "Installed $Release to $Binary."
+    # The release a download of the latest one is, as the CLI tells it, such as `protomap 0.1.0`.
+    if (-not $Version) {
+        try {
+            $Told = & $Binary --version 2> $null
+            if ("$Told" -match '^protomap (\S+)') {
+                $Version = $Matches[1]
+            }
+        } catch {
+            # A CLI that does not run on this computer tells no release, and the summary names the latest instead.
+        }
+    }
+    $Cli = if ($Version) { "ProtoMap CLI $Version" } else { 'the latest ProtoMap CLI' }
+    # The folder as the summary names it, from %LOCALAPPDATA% when it is there, which reads shorter.
+    $LocalAppData = [Environment]::GetFolderPath('LocalApplicationData').TrimEnd('\')
+    $Shown = $Directory
+    if ($Shown.StartsWith("$LocalAppData\", [StringComparison]::OrdinalIgnoreCase)) {
+        $Shown = '%LOCALAPPDATA%' + $Shown.Substring($LocalAppData.Length)
+    }
+    Write-Host "Downloaded and verified $Cli for Windows ($Arch)."
+    Write-Host "Installed binary at $(Join-Path $Shown 'protomap.exe')."
 
     # The folder goes first on the user's PATH, which the registry holds with its variables unexpanded, such as
     # %USERPROFILE%, and which they keep. Terminals opened from now on find the CLI, and so does this session.
@@ -175,16 +203,22 @@
             $Notice = "PROTOMAP_$([Guid]::NewGuid().ToString('N'))"
             [Environment]::SetEnvironmentVariable($Notice, '1', 'User')
             [Environment]::SetEnvironmentVariable($Notice, [NullString]::Value, 'User')
-            Write-Host "Added $Directory to your PATH."
+            Write-Host "Added $Shown to your PATH."
         }
     } finally {
         $Key.Dispose()
     }
     $env:Path = (@($Directory) + @($env:Path.Split(';') | Where-Object { & $IsOther $_ })) -join ';'
 
-    Write-Host "Log in with: protomap login --server=<your ProtoMap server's address>"
-    Write-Host 'Then add ProtoMap to your coding agent, such as Claude Code, so it reads the graph with your changes'
-    Write-Host 'laid over it:'
-    Write-Host '  claude mcp add protomap -- protomap mcp serve'
-    Write-Host 'Other coding agents run protomap mcp serve from the repository''s folder, over standard input and output.'
+    # This session finds the CLI too, so the next steps need no new terminal.
+    Write-Host ''
+    Write-Host 'ProtoMap CLI is installed. Next:'
+    Write-Host ''
+    Write-Host '  1. Log in to your ProtoMap Server:'
+    Write-Host ''
+    Write-Host "     ${Bold}protomap login --server=<your-server-url>$Reset"
+    Write-Host ''
+    Write-Host '  2. In your repository, add ProtoMap to your coding agent, e.g. Claude Code:'
+    Write-Host ''
+    Write-Host "     ${Bold}claude mcp add protomap -- protomap mcp serve$Reset"
 } @args
