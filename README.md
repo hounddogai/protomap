@@ -67,9 +67,11 @@ protomap login --server=http://<your server>:3300
 protomap scan /path/to/repository
 ```
 
-`protomap login` opens the platform in your browser to approve the login. On a computer without a browser, such as a
-VM over SSH, or with `--no-open`, it prints a code instead: open `http://<your server>:3300/#/cli` in a browser on any
-computer and enter it. `protomap logout` forgets the server and revokes this computer's key on it.
+`protomap login` opens the platform in your browser to approve the login, through an address on your computer that
+works once: if a second browser opens it, such as one of another user of the computer, the login is refused, and you
+run `protomap login` again. On a computer without a browser, such as a VM over SSH, or with `--no-open`, it prints a
+code instead: open `http://<your server>:3300/#/cli` in a browser on any computer and enter it. Check the account it
+says it logged in as. `protomap logout` forgets the server and revokes this computer's key on it.
 
 Scans of a pushed commit on a repository's primary branch, with no uncommitted changes, join the graph everyone in the
 organization sees. Your other scans, such as of uncommitted changes or other branches, only show to you.
