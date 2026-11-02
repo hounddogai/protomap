@@ -7,8 +7,10 @@
 #   & ([scriptblock]::Create((irm https://protomap.ai/install.ps1))) 0.1.0
 #
 # The CLI installs to %LOCALAPPDATA%\protomap\bin, or to PROTOMAP_INSTALL_DIR, and the folder goes first on the user's
-# PATH. Releases have builds for Windows on x86_64 and aarch64, named protomap-windows-<arch>.exe, and a SHA256SUMS file
-# that each download must match before it replaces the installed CLI. Linux and macOS install with install.sh instead.
+# PATH. A folder named bin also keeps each version in versions\<version> beside it and names the current one in
+# bin\current, the layout that `protomap update` keeps current; another folder holds just the binary. Releases have
+# builds for Windows on x86_64 and aarch64, named protomap-windows-<arch>.exe, and a SHA256SUMS file that each download
+# must match before it replaces the installed CLI. Linux and macOS install with install.sh instead.
 #
 # PROTOMAP_RELEASES_URL replaces https://github.com/hounddogai/protomap/releases, such as with a mirror or a test's
 # server, which serves the same paths: <url>/latest/download/<file> and <url>/download/<version>/<file>.
@@ -178,6 +180,17 @@
         }
     }
     $Cli = if ($Version) { "ProtoMap CLI $Version" } else { 'the latest ProtoMap CLI' }
+    # The layout `protomap update` keeps current, beside a folder named bin: it copies a newer version into bin and
+    # renames the running copy aside, as this script does.
+    if ($Version -match '^[0-9A-Za-z.-]+$' -and (Split-Path -Leaf $Directory) -eq 'bin') {
+        $Kept = Join-Path (Join-Path (Split-Path -Parent $Directory) 'versions') $Version
+        New-Item -ItemType Directory -Path $Kept -Force | Out-Null
+        Copy-Item -LiteralPath $Binary -Destination (Join-Path $Kept 'protomap.exe') -Force
+        Set-Content -LiteralPath (Join-Path $Directory 'current') -Value $Version -NoNewline -Encoding ascii
+    } else {
+        # A binary whose version is unknown must not pass for the one bin\current names.
+        Remove-Item -LiteralPath (Join-Path $Directory 'current') -Force -ErrorAction SilentlyContinue
+    }
     # The folder as the summary names it, from %LOCALAPPDATA% when it is there, which reads shorter.
     $LocalAppData = [Environment]::GetFolderPath('LocalApplicationData').TrimEnd('\')
     $Shown = $Directory

@@ -1,0 +1,27 @@
+# The build context of public/self-hosted/Dockerfile is the repository root. Send only what the image needs.
+*
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!crates/
+crates/server/ui/
+!crates/server/ui/package.json
+!crates/server/ui/pnpm-lock.yaml
+!crates/server/ui/pnpm-workspace.yaml
+!crates/server/ui/patches/
+!crates/server/ui/index.html
+!crates/server/ui/api-docs.html
+!crates/server/ui/tsconfig.json
+!crates/server/ui/tsconfig.app.json
+!crates/server/ui/tsconfig.node.json
+!crates/server/ui/vite.config.ts
+!crates/server/ui/public/
+!crates/server/ui/src/
+!public/self-hosted/scripts/entrypoint.sh
+**/node_modules/
+**/dist/
+**/test-results/
+**/.DS_Store
+**/.playwright/
+**/.tanstack/
+**/target/

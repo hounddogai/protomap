@@ -17,7 +17,7 @@
 #
 # Configuration comes from .env next to this file, or from the file named by --env-file. Development runs the server and
 # the worker on the host, and uses only the postgres service, with shell/env/.env.dev:
-#   docker compose --file docker/self-hosted/compose.yaml --env-file shell/env/.env.dev up --detach --wait postgres
+#   docker compose --file public/self-hosted/compose.yaml --env-file shell/env/.env.dev up --detach --wait postgres
 # To run the full stack from source, including the development stand-ins, use:
 #   shell/scripts/dev containers --env-file <env file>
 
@@ -55,7 +55,7 @@ x-protomap-environment: &protomap-environment
 services:
   postgres:
     container_name: ${COMPOSE_PROJECT_NAME:-protomap}-postgres
-    image: postgres:18.4-alpine
+    image: postgres:18.6-alpine
     profiles: ["postgres"]
     restart: unless-stopped
     environment:

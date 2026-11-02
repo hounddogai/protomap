@@ -9,7 +9,9 @@
 #   curl -fsSL https://protomap.ai/install.sh | sh -s -- 0.1.0
 #
 # The CLI installs to ~/.local/bin, or to PROTOMAP_INSTALL_DIR, which goes on the PATH in the profile of the user's
-# shell, zsh, bash, or fish, unless it is already there. Releases have builds for Linux and macOS on x86_64 and
+# shell, zsh, bash, or fish, unless it is already there. The command there is a link into ~/.protomap, where each
+# version keeps a folder, versions/<version>, and bin/protomap names the current one, which `protomap update` repoints
+# to update the CLI in place. A plain binary that an earlier installer put there becomes the link. Releases have builds for Linux and macOS on x86_64 and
 # aarch64, named protomap-<os>-<arch>, and a SHA256SUMS file that each download must match before it replaces the
 # installed CLI. Windows installs with install.ps1 instead.
 #
@@ -158,13 +160,30 @@ actual="$(hash_file "${download}" | awk '{ print tolower($1) }')"
         'Installed CLI is unchanged.' \
         'Run this again. A repeated failure means downloads get damaged in transit.'
 chmod 755 "${download}"
-# The release a download of the latest one is, as the CLI tells it, such as `protomap 0.1.0`.
-if [ -z "${version}" ]; then
-    version="$("${download}" --version 2> /dev/null | awk '$1 == "protomap" { print $2 }')" || version=''
+# The release the download is, as the CLI tells it, such as `protomap 0.1.0`, which names its folder.
+reported="$("${download}" --version 2> /dev/null | awk '$1 == "protomap" { print $2 }')" || reported=''
+case "${reported}" in
+    '' | *[!0-9A-Za-z.-]*) fail "The downloaded ProtoMap CLI does not run here, or reports no version." ;;
+esac
+version="${reported}"
+cli="ProtoMap CLI ${version}"
+home="${HOME}/.protomap"
+mkdir -p "${home}/versions" "${home}/bin"
+staged="$(mktemp -d "${home}/versions/.protomap.XXXXXX")"
+trap 'rm -f "${download}" "${sums}"; rm -rf "${staged}"' EXIT
+chmod 755 "${staged}"
+mv -f "${download}" "${staged}/protomap"
+rm -rf "${home}/versions/${version}"
+mv "${staged}" "${home}/versions/${version}"
+# Each link is made beside its place and renamed over it, so a command never finds the CLI missing.
+link="${home}/bin/.protomap.link.$$"
+ln -s "../versions/${version}/protomap" "${link}"
+mv -f "${link}" "${home}/bin/protomap"
+if [ "$(cd "${directory}" && pwd -P)" != "$(cd "${home}/bin" && pwd -P)" ]; then
+    link="${directory}/.protomap.link.$$"
+    ln -s "${home}/bin/protomap" "${link}"
+    mv -f "${link}" "${directory}/protomap"
 fi
-cli="${version:+ProtoMap CLI ${version}}"
-cli="${cli:-the latest ProtoMap CLI}"
-mv -f "${download}" "${directory}/protomap"
 rm -f "${sums}"
 trap - EXIT
 shown="$(shorten "${directory}")"
