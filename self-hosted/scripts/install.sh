@@ -125,9 +125,10 @@ server_release() {
     docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image"
 }
 
-# Installs release $1 of the ProtoMap CLI, the server's, so the two speak the same API. It replaces the CLI found on
-# PATH, or else installs to ~/.local/bin, which the CLI's installer puts on the PATH in the profile of the user's shell,
-# and says where it went. Keep it in step with upgrade.sh.
+# Installs release $1 of the ProtoMap CLI, the server's, so the two speak the same API. Installing a given release
+# turns the CLI's automatic updates off, so it stays at the server's release until an upgrade installs the next. It
+# replaces the CLI found on PATH, or else installs to ~/.local/bin, which the CLI's installer puts on the PATH in the
+# profile of the user's shell, and says where it went. Keep it in step with upgrade.sh.
 install_cli() {
     local existing directory
     existing="$(command -v protomap || true)"

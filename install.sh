@@ -4,14 +4,17 @@
 #
 #   curl -fsSL https://protomap.ai/install.sh | sh
 #
-# Or a version, such as the one a ProtoMap server runs:
+# Or a version, such as the one a ProtoMap server runs, which then stays: it turns the CLI's automatic updates off,
+# and installing the latest release turns them on again:
 #
 #   curl -fsSL https://protomap.ai/install.sh | sh -s -- 0.1.0
 #
 # The CLI installs to ~/.local/bin, or to PROTOMAP_INSTALL_DIR, which goes on the PATH in the profile of the user's
 # shell, zsh, bash, or fish, unless it is already there. The command there is a link into ~/.protomap, where each
 # version keeps a folder, versions/<version>, and bin/protomap names the current one, which `protomap update` repoints
-# to update the CLI in place. A plain binary that an earlier installer put there becomes the link. Releases have builds for Linux and macOS on x86_64 and
+# to update the CLI in place. A plain binary that an earlier installer put there becomes the link. Run as root, the
+# script installs the CLI for every user, as a plain binary in /usr/local/bin or PROTOMAP_INSTALL_DIR, which never
+# updates itself: running the script again as root upgrades it. Releases have builds for Linux and macOS on x86_64 and
 # aarch64, named protomap-<os>-<arch>, and a SHA256SUMS file that each download must match before it replaces the
 # installed CLI. Windows installs with install.ps1 instead.
 #
@@ -139,7 +142,13 @@ download_file() {
 }
 
 say "${bold}Installing ProtoMap CLI...${reset}" ''
-directory="${PROTOMAP_INSTALL_DIR:-${HOME}/.local/bin}"
+is_root=''
+[ "$(id -u)" != 0 ] || is_root=1
+if [ -n "${is_root}" ]; then
+    directory="${PROTOMAP_INSTALL_DIR:-/usr/local/bin}"
+else
+    directory="${PROTOMAP_INSTALL_DIR:-${HOME}/.local/bin}"
+fi
 mkdir -p "${directory}"
 # Download beside the destination and rename, so a failed download never replaces a working CLI.
 download="$(mktemp "${directory}/.protomap.XXXXXX")"
@@ -165,24 +174,45 @@ reported="$("${download}" --version 2> /dev/null | awk '$1 == "protomap" { print
 case "${reported}" in
     '' | *[!0-9A-Za-z.-]*) fail "The downloaded ProtoMap CLI does not run here, or reports no version." ;;
 esac
-version="${reported}"
-cli="ProtoMap CLI ${version}"
-home="${HOME}/.protomap"
-mkdir -p "${home}/versions" "${home}/bin"
-staged="$(mktemp -d "${home}/versions/.protomap.XXXXXX")"
-trap 'rm -f "${download}" "${sums}"; rm -rf "${staged}"' EXIT
-chmod 755 "${staged}"
-mv -f "${download}" "${staged}/protomap"
-rm -rf "${home}/versions/${version}"
-mv "${staged}" "${home}/versions/${version}"
-# Each link is made beside its place and renamed over it, so a command never finds the CLI missing.
-link="${home}/bin/.protomap.link.$$"
-ln -s "../versions/${version}/protomap" "${link}"
-mv -f "${link}" "${home}/bin/protomap"
-if [ "$(cd "${directory}" && pwd -P)" != "$(cd "${home}/bin" && pwd -P)" ]; then
-    link="${directory}/.protomap.link.$$"
-    ln -s "${home}/bin/protomap" "${link}"
-    mv -f "${link}" "${directory}/protomap"
+cli="ProtoMap CLI ${reported}"
+# The note on automatic updates for the summary.
+updates=''
+if [ -n "${is_root}" ]; then
+    # For every user, a plain binary that only root changes, which never updates itself. It replaces what is there,
+    # such as a link into root's own ~/.protomap that an earlier installer made, which other users could not run.
+    mv -f "${download}" "${directory}/protomap"
+    updates='It is installed for every user, so it does not update itself: run this script again as root to upgrade it.'
+else
+    home="${HOME}/.protomap"
+    mkdir -p "${home}/versions" "${home}/bin"
+    staged="$(mktemp -d "${home}/versions/.protomap.XXXXXX")"
+    trap 'rm -f "${download}" "${sums}"; rm -rf "${staged}"' EXIT
+    chmod 755 "${staged}"
+    mv -f "${download}" "${staged}/protomap"
+    rm -rf "${home}/versions/${reported}"
+    mv "${staged}" "${home}/versions/${reported}"
+    # Each link is made beside its place and renamed over it, so a command never finds the CLI missing.
+    link="${home}/bin/.protomap.link.$$"
+    ln -s "../versions/${reported}/protomap" "${link}"
+    mv -f "${link}" "${home}/bin/protomap"
+    if [ "$(cd "${directory}" && pwd -P)" != "$(cd "${home}/bin" && pwd -P)" ]; then
+        link="${directory}/.protomap.link.$$"
+        ln -s "${home}/bin/protomap" "${link}"
+        mv -f "${link}" "${directory}/protomap"
+    fi
+    # A given version stays until the user asks for another, so it turns automatic updates off, such as for the CLI
+    # of a server's release, and installing the latest release turns them on again. A release too old to have
+    # automatic updates refuses the command.
+    if [ -n "${version}" ]; then
+        if "${home}/bin/protomap" update --auto off > /dev/null 2>&1; then
+            updates="Automatic updates are off, so it stays at ${reported}."
+            # An installer that runs this one, such as ProtoMap Server's, keeps the CLI at its server's release.
+            [ -n "${brief}" ] || updates="${updates} Run protomap update --auto on to turn them on."
+        fi
+    elif [ -f "${home}/update.json" ] && grep -q '"automatic": false' "${home}/update.json" &&
+        "${home}/bin/protomap" update --auto on > /dev/null 2>&1; then
+        updates='Automatic updates are on again.'
+    fi
 fi
 rm -f "${sums}"
 trap - EXIT
@@ -190,6 +220,7 @@ shown="$(shorten "${directory}")"
 binary="$(shorten "${directory}/protomap")"
 say "Downloaded and verified ${cli} for ${os_name} (${arch})." "Installed binary at ${binary}."
 [ -z "${brief}" ] || printf '%s\n' "Installed ${cli} at ${binary}."
+[ -z "${updates}" ] || printf '%s\n' "${updates}"
 
 # Puts the folder on the PATH in the profile of the user's shell, and says how: zsh and fish do not read ~/.profile, and
 # bash reads ~/.bashrc in Linux terminals, which start shells that are not login shells, and ~/.bash_profile in macOS's,

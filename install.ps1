@@ -2,13 +2,16 @@
 #
 #   irm https://protomap.ai/install.ps1 | iex
 #
-# Or a version, such as the one a ProtoMap server runs:
+# Or a version, such as the one a ProtoMap server runs, which then stays: it turns the CLI's automatic updates off,
+# and installing the latest release turns them on again:
 #
 #   & ([scriptblock]::Create((irm https://protomap.ai/install.ps1))) 0.1.0
 #
 # The CLI installs to %LOCALAPPDATA%\protomap\bin, or to PROTOMAP_INSTALL_DIR, and the folder goes first on the user's
 # PATH. A folder named bin also keeps each version in versions\<version> beside it and names the current one in
-# bin\current, the layout that `protomap update` keeps current; another folder holds just the binary. Releases have
+# bin\current, the layout that `protomap update` keeps current; another folder holds just the binary, and so does a
+# folder for every user, such as in Program Files, which never updates itself: running this script again as an
+# administrator upgrades it. Releases have
 # builds for Windows on x86_64 and aarch64, named protomap-windows-<arch>.exe, and a SHA256SUMS file that each download
 # must match before it replaces the installed CLI. Linux and macOS install with install.sh instead.
 #
@@ -38,6 +41,7 @@
     if ($Version -and $Version -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?\z') {
         throw "$Version is not a version of ProtoMap CLI.`nA version looks like 1.2.3 or 1.2.3-beta.1."
     }
+    $IsVersionGiven = [bool]$Version
     if ($env:OS -ne 'Windows_NT') {
         $Command = "curl -fsSL $Scripts/install.sh | sh"
         if ($Version) {
@@ -180,16 +184,57 @@
         }
     }
     $Cli = if ($Version) { "ProtoMap CLI $Version" } else { 'the latest ProtoMap CLI' }
+    # A folder for every user, which only an administrator may change, never updates itself.
+    $IsShared = $false
+    foreach ($Shared in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432, $env:ProgramData)) {
+        if ($Shared -and $Directory.StartsWith($Shared.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            $IsShared = $true
+        }
+    }
+    # The note on automatic updates for the summary.
+    $Updates = $null
     # The layout `protomap update` keeps current, beside a folder named bin: it copies a newer version into bin and
     # renames the running copy aside, as this script does.
-    if ($Version -match '^[0-9A-Za-z.-]+$' -and (Split-Path -Leaf $Directory) -eq 'bin') {
+    if (-not $IsShared -and $Version -match '^[0-9A-Za-z.-]+$' -and (Split-Path -Leaf $Directory) -eq 'bin') {
         $Kept = Join-Path (Join-Path (Split-Path -Parent $Directory) 'versions') $Version
         New-Item -ItemType Directory -Path $Kept -Force | Out-Null
         Copy-Item -LiteralPath $Binary -Destination (Join-Path $Kept 'protomap.exe') -Force
         Set-Content -LiteralPath (Join-Path $Directory 'current') -Value $Version -NoNewline -Encoding ascii
+        # A given version stays until the user asks for another, so it turns automatic updates off, such as for the
+        # CLI of a server's release, and installing the latest release turns them on again. A release too old to have
+        # automatic updates refuses the command.
+        $State = Join-Path (Split-Path -Parent $Directory) 'update.json'
+        $Automatic = $null
+        if ($IsVersionGiven) {
+            $Automatic = 'off'
+        } elseif ((Test-Path -LiteralPath $State -PathType Leaf) -and
+            (Select-String -LiteralPath $State -SimpleMatch '"automatic": false' -Quiet)) {
+            $Automatic = 'on'
+        }
+        if ($Automatic) {
+            # Windows PowerShell stops at a program's error output while errors stop the script.
+            $Preference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                & $Binary update --auto $Automatic *> $null
+                $IsSwitched = $LASTEXITCODE -eq 0
+            } catch {
+                $IsSwitched = $false
+            } finally {
+                $ErrorActionPreference = $Preference
+            }
+            if ($IsSwitched -and $Automatic -eq 'off') {
+                $Updates = "Automatic updates are off, so it stays at $Version. Run protomap update --auto on to turn them on."
+            } elseif ($IsSwitched) {
+                $Updates = 'Automatic updates are on again.'
+            }
+        }
     } else {
         # A binary whose version is unknown must not pass for the one bin\current names.
         Remove-Item -LiteralPath (Join-Path $Directory 'current') -Force -ErrorAction SilentlyContinue
+        if ($IsShared) {
+            $Updates = 'It is installed for every user, so it does not update itself: run this script again as an administrator to upgrade it.'
+        }
     }
     # The folder as the summary names it, from %LOCALAPPDATA% when it is there, which reads shorter.
     $LocalAppData = [Environment]::GetFolderPath('LocalApplicationData').TrimEnd('\')
@@ -199,6 +244,9 @@
     }
     Write-Host "Downloaded and verified $Cli for Windows ($Arch)."
     Write-Host "Installed binary at $(Join-Path $Shown 'protomap.exe')."
+    if ($Updates) {
+        Write-Host $Updates
+    }
 
     # The folder goes first on the user's PATH, which the registry holds with its variables unexpanded, such as
     # %USERPROFILE%, and which they keep. Terminals opened from now on find the CLI, and so does this session.

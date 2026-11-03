@@ -60,6 +60,12 @@ checking it against the release's `SHA256SUMS`. The CLI goes to `~/.local/bin` o
 `%LOCALAPPDATA%\protomap\bin` on Windows, or to the folder `PROTOMAP_INSTALL_DIR` names. On Windows, the script adds the
 folder to your `PATH`; on macOS and Linux, it says how when the folder is not on it.
 
+The CLI keeps itself up to date: at most once a day, a command downloads a newer release in the background for the
+next one. It does not in CI, in containers, when installed as root or into `Program Files`, or when installed at a
+given version (`sh -s -- 0.1.0`), which then stays, as the CLI that ProtoMap Server's installer installs at the
+server's release does. Run `protomap update` to update by hand, `protomap update --auto on` or `off` to choose, and
+`protomap update --rollback` to go back to the version an update replaced.
+
 Log in to your server, then scan a repository:
 
 ```shell
