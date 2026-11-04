@@ -7,7 +7,7 @@
 # Or a version, such as the one a ProtoMap server runs, which then stays: it turns the CLI's automatic updates off,
 # and installing the latest release turns them on again:
 #
-#   curl -fsSL https://protomap.ai/install.sh | sh -s -- 0.1.0
+#   curl -fsSL https://protomap.ai/install.sh | sh -s -- --version 0.1.0
 #
 # The CLI installs to ~/.local/bin, or to PROTOMAP_INSTALL_DIR, which goes on the PATH in the profile of the user's
 # shell, zsh, bash, or fish, unless it is already there. The command there is a link into ~/.protomap, where each
@@ -65,9 +65,28 @@ if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${NO_COLOR:-}" ]; then
     bold="$(printf '\033[1m')" reset="$(printf '\033[0m')"
 fi
 scripts='https://protomap.ai'
-[ "$#" -le 1 ] || fail 'Pass one version at most:' "  curl -fsSL ${scripts}/install.sh | sh -s -- <version>"
-version="${1:-}"
-[ -z "${version}" ] || is_version "${version}" ||
+usage() {
+    printf '%s\n' "Usage: curl -fsSL ${scripts}/install.sh | sh -s -- [--version <version>]" '' \
+        '  -v, --version <version>  Install this version, such as 1.2.3 or 1.2.3-beta.1, which then stays:' \
+        '                           it turns automatic updates off. Without it, the latest release installs.' \
+        '  -h, --help               Show this help.'
+}
+version='' is_version_given=''
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -v | --version)
+            [ "$#" -ge 2 ] || fail "$1 needs a version, such as $1 1.2.3."
+            version="$2" is_version_given=1
+            shift 2
+            ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *) fail "Unknown option: $1" 'Run with --help to see the options.' ;;
+    esac
+done
+[ -z "${is_version_given}" ] || is_version "${version}" ||
     fail "${version} is not a version of ProtoMap CLI." 'A version looks like 1.2.3 or 1.2.3-beta.1.'
 
 case "$(uname -s)" in
@@ -77,7 +96,7 @@ case "$(uname -s)" in
     MINGW* | MSYS* | CYGWIN*)
         if [ -n "${version}" ]; then
             fail 'On Windows, install ProtoMap CLI in PowerShell:' \
-                "  & ([scriptblock]::Create((irm ${scripts}/install.ps1))) ${version}"
+                "  & ([scriptblock]::Create((irm ${scripts}/install.ps1))) -Version ${version}"
         fi
         fail 'On Windows, install ProtoMap CLI in PowerShell:' "  irm ${scripts}/install.ps1 | iex"
         ;;
@@ -88,22 +107,9 @@ case "$(uname -m)" in
     aarch64 | arm64) arch=aarch64 ;;
     *) fail 'ProtoMap CLI runs on x86_64 and aarch64.' "This computer is $(uname -m)." ;;
 esac
-# The Linux builds need the GNU C library, which Alpine and other Linux distributions built on musl lack, from version
-# 2.28 on, which older distributions, such as CentOS 7 and Ubuntu 18.04, lack too.
-if [ "${os}" = linux ]; then
-    if ldd --version 2>&1 | grep -qi musl; then
-        fail 'ProtoMap CLI for Linux needs glibc.' \
-            'This computer has musl instead, as Alpine Linux does.' \
-            'Use a Linux with glibc, such as Debian, Ubuntu, or RHEL,' \
-            'or in a container of one.'
-    fi
-    glibc="$(getconf GNU_LIBC_VERSION 2> /dev/null | awk '{ print $2 }')"
-    if [ -n "${glibc}" ] && ! printf '%s\n' "${glibc}" | awk -F. '{ exit !($1 > 2 || $1 == 2 && $2 >= 28) }'; then
-        fail 'ProtoMap CLI for Linux needs glibc 2.28 or later.' \
-            "This computer has ${glibc}." \
-            'Use a newer Linux, such as RHEL 8, Debian 10, or Ubuntu 20.04,' \
-            'or in a container of one.'
-    fi
+# A shell that runs under Rosetta on Apple silicon reports x86_64, and the aarch64 build runs natively there.
+if [ "${os}" = macos ] && [ "${arch}" = x86_64 ] && [ "$(sysctl -n hw.optional.arm64 2> /dev/null)" = 1 ]; then
+    arch=aarch64
 fi
 command -v curl > /dev/null 2>&1 || fail 'Install curl, then run this again.'
 # Both print the checksum of standard input first: sha256sum on Linux, and shasum on macOS.
@@ -170,7 +176,7 @@ actual="$(hash_file "${download}" | awk '{ print tolower($1) }')"
         'Run this again. A repeated failure means downloads get damaged in transit.'
 chmod 755 "${download}"
 # The release the download is, as the CLI tells it, such as `protomap 0.1.0`, which names its folder.
-reported="$("${download}" --version 2> /dev/null | awk '$1 == "protomap" { print $2 }')" || reported=''
+reported="$("${download}" --version 2> /dev/null | awk 'NR == 1 { print $NF }')" || reported=''
 case "${reported}" in
     '' | *[!0-9A-Za-z.-]*) fail "The downloaded ProtoMap CLI does not run here, or reports no version." ;;
 esac
@@ -209,7 +215,7 @@ else
             # An installer that runs this one, such as ProtoMap Server's, keeps the CLI at its server's release.
             [ -n "${brief}" ] || updates="${updates} Run protomap update --auto on to turn them on."
         fi
-    elif [ -f "${home}/update.json" ] && grep -q '"automatic": false' "${home}/update.json" &&
+    elif [ -f "${home}/settings.json" ] && grep -q '"automatic": false' "${home}/settings.json" &&
         "${home}/bin/protomap" update --auto on > /dev/null 2>&1; then
         updates='Automatic updates are on again.'
     fi

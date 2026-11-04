@@ -56,15 +56,27 @@ irm https://protomap.ai/install.ps1 | iex
 ```
 
 The scripts install the latest release from the [releases page](https://github.com/hounddogai/protomap/releases), after
-checking it against the release's `SHA256SUMS`. The CLI goes to `~/.local/bin` on macOS and Linux, and to
-`%LOCALAPPDATA%\protomap\bin` on Windows, or to the folder `PROTOMAP_INSTALL_DIR` names. On Windows, the script adds the
-folder to your `PATH`; on macOS and Linux, it says how when the folder is not on it.
+checking it against the release's `SHA256SUMS`. The CLI goes to `~/.local/bin` on macOS and Linux, as a link into
+`~/.protomap`, and to `%LOCALAPPDATA%\protomap\bin` on Windows, or `%ProgramFiles%\protomap\bin` for all users when
+the script runs as an administrator, or to the folder `PROTOMAP_INSTALL_DIR` names. The scripts add the folder to your
+`PATH`, on macOS and Linux in your shell's profile. The Linux builds are static and run on any Linux, Alpine included.
+
+To install a given version, which then stays:
+
+```shell
+curl -fsSL https://protomap.ai/install.sh | sh -s -- --version 0.1.0
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://protomap.ai/install.ps1))) -Version 0.1.0
+```
 
 The CLI keeps itself up to date: at most once a day, a command downloads a newer release in the background for the
-next one. It does not in CI, in containers, when installed as root or into `Program Files`, or when installed at a
-given version (`sh -s -- 0.1.0`), which then stays, as the CLI that ProtoMap Server's installer installs at the
-server's release does. Run `protomap update` to update by hand, `protomap update --auto on` or `off` to choose, and
-`protomap update --rollback` to go back to the version an update replaced.
+next one. It does not in CI, in containers, when installed as root or as a Windows administrator, or when installed at
+a given version, which then stays, as the CLI that ProtoMap Server's installer installs at the server's release does.
+Run `protomap update` to update by hand, `protomap update --auto on` or `off` to choose, and
+`protomap update --rollback` to go back to the version an update replaced. `PROTOMAP_DISABLE_AUTOUPDATE=1` turns
+automatic updates off for one command or a whole environment.
 
 Log in to your server, then scan a repository:
 

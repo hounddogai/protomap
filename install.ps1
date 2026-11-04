@@ -5,13 +5,14 @@
 # Or a version, such as the one a ProtoMap server runs, which then stays: it turns the CLI's automatic updates off,
 # and installing the latest release turns them on again:
 #
-#   & ([scriptblock]::Create((irm https://protomap.ai/install.ps1))) 0.1.0
+#   & ([scriptblock]::Create((irm https://protomap.ai/install.ps1))) -Version 0.1.0
 #
 # The CLI installs to %LOCALAPPDATA%\protomap\bin, or to PROTOMAP_INSTALL_DIR, and the folder goes first on the user's
 # PATH. A folder named bin also keeps each version in versions\<version> beside it and names the current one in
-# bin\current, the layout that `protomap update` keeps current; another folder holds just the binary, and so does a
-# folder for every user, such as in Program Files, which never updates itself: running this script again as an
-# administrator upgrades it. Releases have
+# bin\current, the layout that `protomap update` keeps current; another folder holds just the binary. Run as an
+# administrator, the script installs the CLI for every user, in %ProgramFiles%\protomap\bin or PROTOMAP_INSTALL_DIR,
+# first on the system's PATH, and that CLI never updates itself: running this script again as an administrator
+# upgrades it. Releases have
 # builds for Windows on x86_64 and aarch64, named protomap-windows-<arch>.exe, and a SHA256SUMS file that each download
 # must match before it replaces the installed CLI. Linux and macOS install with install.sh instead.
 #
@@ -21,7 +22,7 @@
 # The installation runs in a script block of its own, so that iex leaves no variables or preferences behind in the
 # session that runs it.
 & {
-    param([string]$Version)
+    param([object[]]$Arguments)
 
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
@@ -29,6 +30,29 @@
     $ProgressPreference = 'SilentlyContinue'
 
     $Scripts = 'https://protomap.ai'
+    $Version = ''
+    $IsVersionGiven = $false
+    for ($Index = 0; $Index -lt $Arguments.Count; $Index++) {
+        $Argument = [string]$Arguments[$Index]
+        if ($Argument -in @('-Version', '-v', '--version')) {
+            if ($Index + 1 -ge $Arguments.Count) {
+                throw "$Argument needs a version, such as $Argument 1.2.3."
+            }
+            $Index++
+            $Version = [string]$Arguments[$Index]
+            $IsVersionGiven = $true
+        } elseif ($Argument -in @('-Help', '-h', '--help')) {
+            Write-Host "Usage: & ([scriptblock]::Create((irm $Scripts/install.ps1))) [-Version <version>]"
+            Write-Host ''
+            Write-Host '  -v, -Version <version>  Install this version, such as 1.2.3 or 1.2.3-beta.1, which'
+            Write-Host '                          then stays: it turns automatic updates off. Without it, the'
+            Write-Host '                          latest release installs.'
+            Write-Host '  -h, -Help               Show this help.'
+            return
+        } else {
+            throw "Unknown option: $Argument`nRun with -Help to see the options."
+        }
+    }
     # Bold marks the title and the commands to copy, in a console that shows it.
     $Bold = ''
     $Reset = ''
@@ -38,14 +62,13 @@
     }
     # A version is a release's tag, such as 1.2.3 or 1.2.3-beta.1. \z ends the match at the very end, where $ would
     # also allow a line break.
-    if ($Version -and $Version -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?\z') {
+    if ($IsVersionGiven -and $Version -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?\z') {
         throw "$Version is not a version of ProtoMap CLI.`nA version looks like 1.2.3 or 1.2.3-beta.1."
     }
-    $IsVersionGiven = [bool]$Version
     if ($env:OS -ne 'Windows_NT') {
         $Command = "curl -fsSL $Scripts/install.sh | sh"
         if ($Version) {
-            $Command += " -s -- $Version"
+            $Command += " -s -- --version $Version"
         }
         throw "This script installs ProtoMap CLI on Windows.`nOn Linux and macOS, run:`n  $Command"
     }
@@ -83,8 +106,12 @@
         }
     }
 
+    $Identity = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+    $IsAdministrator = $Identity.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     $Directory = $env:PROTOMAP_INSTALL_DIR
-    if (-not $Directory) {
+    if (-not $Directory -and $IsAdministrator) {
+        $Directory = Join-Path $env:ProgramFiles 'protomap\bin'
+    } elseif (-not $Directory) {
         $Directory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'protomap\bin'
     }
     New-Item -ItemType Directory -Path $Directory -Force | Out-Null
@@ -175,8 +202,8 @@
     # The release a download of the latest one is, as the CLI tells it, such as `protomap 0.1.0`.
     if (-not $Version) {
         try {
-            $Told = & $Binary --version 2> $null
-            if ("$Told" -match '^protomap (\S+)') {
+            $Told = @(& $Binary --version 2> $null)
+            if ($Told.Count -gt 0 -and "$($Told[0])" -match '(\S+)\s*$') {
                 $Version = $Matches[1]
             }
         } catch {
@@ -203,12 +230,12 @@
         # A given version stays until the user asks for another, so it turns automatic updates off, such as for the
         # CLI of a server's release, and installing the latest release turns them on again. A release too old to have
         # automatic updates refuses the command.
-        $State = Join-Path (Split-Path -Parent $Directory) 'update.json'
+        $Settings = Join-Path (Split-Path -Parent $Directory) 'settings.json'
         $Automatic = $null
         if ($IsVersionGiven) {
             $Automatic = 'off'
-        } elseif ((Test-Path -LiteralPath $State -PathType Leaf) -and
-            (Select-String -LiteralPath $State -SimpleMatch '"automatic": false' -Quiet)) {
+        } elseif ((Test-Path -LiteralPath $Settings -PathType Leaf) -and
+            (Select-String -LiteralPath $Settings -SimpleMatch '"automatic": false' -Quiet)) {
             $Automatic = 'on'
         }
         if ($Automatic) {
@@ -248,22 +275,28 @@
         Write-Host $Updates
     }
 
-    # The folder goes first on the user's PATH, which the registry holds with its variables unexpanded, such as
-    # %USERPROFILE%, and which they keep. Terminals opened from now on find the CLI, and so does this session.
+    # The folder goes first on the PATH, the system's for a folder for every user and the user's otherwise, which the
+    # registry holds with its variables unexpanded, such as %USERPROFILE%, and which they keep. Terminals opened from
+    # now on find the CLI, and so does this session.
     $IsOther = { param($Entry) $Entry -and $Entry.TrimEnd('\') -ine $Directory.TrimEnd('\') }
-    $Key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+    $Scope = if ($IsShared) { 'Machine' } else { 'User' }
+    $Key = if ($IsShared) {
+        [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment')
+    } else {
+        [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+    }
     try {
-        $UserPath = [string]$Key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
-        $NewPath = (@($Directory) + @($UserPath.Split(';') | Where-Object { & $IsOther $_ })) -join ';'
-        if ($NewPath -ne $UserPath) {
+        $StoredPath = [string]$Key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+        $NewPath = (@($Directory) + @($StoredPath.Split(';') | Where-Object { & $IsOther $_ })) -join ';'
+        if ($NewPath -ne $StoredPath) {
             # A PATH stored as plain text stays plain, so a % in one of its folders' names keeps meaning a %.
             $Kind = if ($Key.GetValueNames() -contains 'Path') { $Key.GetValueKind('Path') } else { 'ExpandString' }
             $Key.SetValue('Path', $NewPath, $Kind)
             # Setting a variable through .NET tells running programs, such as Explorer, that the environment changed,
             # so the terminals they open read the new PATH.
             $Notice = "PROTOMAP_$([Guid]::NewGuid().ToString('N'))"
-            [Environment]::SetEnvironmentVariable($Notice, '1', 'User')
-            [Environment]::SetEnvironmentVariable($Notice, [NullString]::Value, 'User')
+            [Environment]::SetEnvironmentVariable($Notice, '1', $Scope)
+            [Environment]::SetEnvironmentVariable($Notice, [NullString]::Value, $Scope)
             Write-Host "Added $Shown to your PATH."
         }
     } finally {
@@ -282,4 +315,4 @@
     Write-Host '  2. In your repository, add ProtoMap to your coding agent, e.g. Claude Code:'
     Write-Host ''
     Write-Host "     ${Bold}claude mcp add protomap -- protomap mcp serve$Reset"
-} @args
+} $args

@@ -138,9 +138,9 @@ install_cli() {
     (
         umask 022
         curl -fsSL https://protomap.ai/install.sh |
-            PROTOMAP_INSTALL_DIR="$directory" PROTOMAP_INSTALL_BRIEF=1 sh -s -- "$1"
+            PROTOMAP_INSTALL_DIR="$directory" PROTOMAP_INSTALL_BRIEF=1 sh -s -- --version "$1"
     ) || fail "Cannot install ProtoMap CLI $1. Install it with:" \
-        "  curl -fsSL https://protomap.ai/install.sh | sh -s -- $1"
+        "  curl -fsSL https://protomap.ai/install.sh | sh -s -- --version $1"
     "${directory}/protomap" --version > /dev/null 2>&1 ||
         fail "ProtoMap CLI was installed, but it does not run:" "  ${directory}/protomap"
     # Outside the PATH of this terminal, the CLI runs in the next one, which reads the profile it went on the PATH in.
