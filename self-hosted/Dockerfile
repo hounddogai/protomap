@@ -10,10 +10,10 @@
 # use docker/dev/Dockerfile.
 
 FROM node:26-bookworm-slim AS ui
-ARG PNPM_VERSION=12.6.0
-RUN npm install --global "pnpm@${PNPM_VERSION}"
 WORKDIR /build
 COPY crates/server/ui/package.json crates/server/ui/pnpm-lock.yaml crates/server/ui/pnpm-workspace.yaml ./
+# Node ships without Corepack since version 25, so npm installs the pnpm that package.json names.
+RUN npm install --global "$(node --print 'require("./package.json").packageManager')"
 COPY crates/server/ui/patches ./patches
 RUN pnpm install --frozen-lockfile
 COPY crates/server/ui/index.html crates/server/ui/api-docs.html crates/server/ui/tsconfig.json \
