@@ -14,8 +14,8 @@
 # version keeps a folder, versions/<version>, and bin/protomap names the current one, which `protomap update` repoints
 # to update the CLI in place. A plain binary that an earlier installer put there becomes the link. Run as root, the
 # script installs the CLI for every user, as a plain binary in /usr/local/bin or PROTOMAP_INSTALL_DIR, which never
-# updates itself: running the script again as root upgrades it. Releases have builds for Linux and macOS on x86_64 and
-# aarch64, named protomap-<os>-<arch>, and a SHA256SUMS file that each download must match before it replaces the
+# updates itself: running the script again as root upgrades it. Releases have builds for Linux and macOS on amd64 and
+# arm64, named protomap-<os>-<arch>, and a SHA256SUMS file that each download must match before it replaces the
 # installed CLI. Windows installs with install.ps1 instead.
 #
 # PROTOMAP_INSTALL_BRIEF=1 says only where the CLI went, and how it reaches the PATH, for an installer that runs this
@@ -103,13 +103,13 @@ case "$(uname -s)" in
     *) fail 'ProtoMap CLI runs on Linux, macOS, and Windows.' "This computer runs $(uname -s)." ;;
 esac
 case "$(uname -m)" in
-    x86_64 | amd64) arch=x86_64 ;;
-    aarch64 | arm64) arch=aarch64 ;;
-    *) fail 'ProtoMap CLI runs on x86_64 and aarch64.' "This computer is $(uname -m)." ;;
+    x86_64 | amd64) arch=amd64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    *) fail 'ProtoMap CLI runs on amd64 and arm64.' "This computer is $(uname -m)." ;;
 esac
-# A shell that runs under Rosetta on Apple silicon reports x86_64, and the aarch64 build runs natively there.
-if [ "${os}" = macos ] && [ "${arch}" = x86_64 ] && [ "$(sysctl -n hw.optional.arm64 2> /dev/null)" = 1 ]; then
-    arch=aarch64
+# A shell that runs under Rosetta on Apple silicon reports x86_64, and the arm64 build runs natively there.
+if [ "${os}" = macos ] && [ "${arch}" = amd64 ] && [ "$(sysctl -n hw.optional.arm64 2> /dev/null)" = 1 ]; then
+    arch=arm64
 fi
 command -v curl > /dev/null 2>&1 || fail 'Install curl, then run this again.'
 # Both print the checksum of standard input first: sha256sum on Linux, and shasum on macOS.
