@@ -347,7 +347,7 @@
     Write-Host ''
     Write-Host '     For a self-hosted ProtoMap Server, add --server=<your-server-url>.'
     Write-Host ''
-    Write-Host '  2. In your repository, add ProtoMap to your coding agent, e.g. Claude Code:'
+    Write-Host '  2. Add ProtoMap to your coding agent, e.g. Claude Code:'
     Write-Host ''
-    Write-Host "     ${Bold}claude mcp add protomap -- protomap mcp serve$Reset"
+    Write-Host "     ${Bold}claude mcp add -s user protomap -- protomap mcp serve$Reset"
 } $args

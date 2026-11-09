@@ -309,5 +309,5 @@ say '' "${next}" '' \
     '  1. Log in to ProtoMap:' '' \
     "     ${bold}protomap login${reset}" '' \
     '     For a self-hosted ProtoMap Server, add --server=<your-server-url>.' '' \
-    '  2. In your repository, add ProtoMap to your coding agent, e.g. Claude Code:' '' \
-    "     ${bold}claude mcp add protomap -- protomap mcp serve${reset}"
+    '  2. Add ProtoMap to your coding agent, e.g. Claude Code:' '' \
+    "     ${bold}claude mcp add -s user protomap -- protomap mcp serve${reset}"

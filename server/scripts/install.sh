@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Interactive installer for ProtoMap Server: writes .env with secrets and a setup key, starts the services, and
-# installs the ProtoMap CLI of the same release.
+# Installer for ProtoMap Server: asks for each choice its options do not give, writes .env with secrets and a setup
+# key, starts the services, and installs the ProtoMap CLI of the same release.
 
 set -euo pipefail
 
 # This script's folder, and the folder above it with compose.yaml and .env, as the command that ran the script names
-# them, such as ./server/scripts and ./self-hosted from the root of the clone, so the commands and files the
+# them, such as ./server/scripts and ./server from the root of the clone, so the commands and files the
 # script names work from where it ran.
 scripts="$(dirname "$0")"
 folder="$(dirname "$scripts")"
@@ -42,16 +42,34 @@ fail() {
     exit 1
 }
 
+usage() {
+    say "Usage: $0 [--trial | --production] [--port=PORT]" "" \
+        "Installs ProtoMap Server, and asks for each choice that no option gives." "" \
+        "  --trial        Bundled PostgreSQL, with ProtoMap CLI set up" \
+        "  --production   Your own PostgreSQL (version 18+), at the URL in PROTOMAP_DATABASE_URL" \
+        "                 or the one the installer asks for" \
+        "  --port=PORT    The server's port [default: 3300]"
+}
+
+# Whether the input ended, such as the answers that a script pipes in, so no question can be asked again.
+is_input_closed=""
+
 # Asks $1 and leaves the answer in REPLY, which is empty when there is no input. With $2 set to "secret", the answer is
 # not shown as it is typed.
 prompt() {
     REPLY=""
     if [ "${2:-}" = "secret" ]; then
-        read -r -s -p "${color_prompt}$1${color_reset} " REPLY || true
+        read -r -s -p "${color_prompt}$1${color_reset} " REPLY || is_input_closed=1
         say ""
     else
-        read -r -p "${color_prompt}$1${color_reset} " REPLY || true
+        read -r -p "${color_prompt}$1${color_reset} " REPLY || is_input_closed=1
     fi
+}
+
+# Says why an answer was rejected, so the question is asked again, or stops when the input ended.
+reject_answer() {
+    [ -z "$is_input_closed" ] || fail "$@"
+    say "$@"
 }
 
 # Says $1, runs the command after it with its output kept aside, and says done, or failed with the output.
@@ -86,6 +104,38 @@ is_loopback_url() {
         localhost | localhost.* | 127.* | "[::1]") return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# Prints why ProtoMap Server cannot use the PostgreSQL URL $1, or nothing when it can.
+database_url_problem() {
+    case "$1" in
+        *"'"*) say "Percent-encode single quotes in your URL." ;;
+        postgres://* | postgresql://*)
+            if is_loopback_url "$1"; then
+                say "ProtoMap Server runs in containers, so localhost won't reach this computer." \
+                    "Use your database server's network address instead." \
+                    "A PostgreSQL on this computer must also listen on that address," \
+                    "and accept connections from Docker's networks."
+            fi
+            ;;
+        *) say "Use a URL that starts with postgres:// or postgresql://." ;;
+    esac
+}
+
+# Prints why ProtoMap Server cannot use port $1, or nothing when it can. A port that a program on this computer already
+# accepts connections on, such as a development server, is in use.
+port_problem() {
+    case "$1" in
+        "" | *[!0-9]* | ??????*)
+            say "Use a port from 1 to 65535."
+            return
+            ;;
+    esac
+    if [ "$1" -lt 1 ] || [ "$1" -gt 65535 ]; then
+        say "Use a port from 1 to 65535."
+    elif (exec 3<> "/dev/tcp/localhost/$1") 2> /dev/null; then
+        say "Port $1 is in use. Stop the program that uses it, or choose another port."
+    fi
 }
 
 # Prints $1 random bytes, base64url-encoded without padding or newlines.
@@ -150,6 +200,21 @@ install_cli() {
     esac
 }
 
+install_type=""
+port=""
+for option in "$@"; do
+    case "$option" in
+        --trial) install_type=1 ;;
+        --production) install_type=2 ;;
+        --port=*) port="${option#--port=}" ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *) fail "Unknown option: ${option}" "$(usage)" ;;
+    esac
+done
+
 env_temp=""
 trap '[ -z "$env_temp" ] || rm -f "$env_temp"' EXIT
 
@@ -164,47 +229,44 @@ if [ -e .env ] || [ -L .env ]; then
         "To start over, run ${scripts}/uninstall.sh," "then ${scripts}/install.sh."
 fi
 
-say "" "Choose an installation:" \
-    "  1) Trial       Bundled PostgreSQL, with ProtoMap CLI set up" \
-    "  2) Production  Your own PostgreSQL (version 18+)" ""
-while :; do
-    prompt "Choose 1 or 2 [default: 1]:"
-    install_type="${REPLY:-1}"
-    case "$install_type" in
-        1 | 2) break ;;
-        *) say "Enter 1 or 2." ;;
-    esac
-done
-while :; do
-    prompt "Server port [default: 3300]:"
-    port="${REPLY:-3300}"
-    case "$port" in
-        *[!0-9]* | "") say "Enter a port from 1 to 65535." ;;
-        *)
-            if [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
-                break
-            fi
-            say "Enter a port from 1 to 65535."
-            ;;
-    esac
-done
+if [ -z "$install_type" ]; then
+    say "" "Choose an installation:" \
+        "  1) Trial       Bundled PostgreSQL, with ProtoMap CLI set up" \
+        "  2) Production  Your own PostgreSQL (version 18+)" ""
+    while :; do
+        prompt "Choose 1 or 2 [default: 1]:"
+        install_type="${REPLY:-1}"
+        case "$install_type" in
+            1 | 2) break ;;
+            *) reject_answer "Enter 1 or 2." ;;
+        esac
+    done
+fi
+if [ -n "$port" ]; then
+    problem="$(port_problem "$port")"
+    [ -z "$problem" ] || fail "$problem"
+else
+    while :; do
+        prompt "Server port [default: 3300]:"
+        port="${REPLY:-3300}"
+        problem="$(port_problem "$port")"
+        [ -n "$problem" ] || break
+        reject_answer "$problem"
+    done
+fi
 database_url=""
-if [ "$install_type" = "2" ]; then
+if [ "$install_type" = "2" ] && [ -n "${PROTOMAP_DATABASE_URL:-}" ]; then
+    database_url="$PROTOMAP_DATABASE_URL"
+    problem="$(database_url_problem "$database_url")"
+    [ -z "$problem" ] || fail "ProtoMap Server cannot use PROTOMAP_DATABASE_URL." "$problem"
+elif [ "$install_type" = "2" ]; then
     say "" "Enter your PostgreSQL URL, in this form:" "  postgres://USER:PASSWORD@HOST:PORT/DATABASE" ""
     while :; do
         prompt "PostgreSQL URL:" secret
         database_url="$REPLY"
-        case "$database_url" in
-            *"'"*) say "Percent-encode single quotes in your URL." ;;
-            postgres://* | postgresql://*)
-                is_loopback_url "$database_url" || break
-                say "ProtoMap Server runs in containers, so localhost won't reach this computer." \
-                    "Enter your database server's network address instead." \
-                    "A PostgreSQL on this computer must also listen on that address," \
-                    "and accept connections from Docker's networks."
-                ;;
-            *) say "Enter a URL that starts with postgres:// or postgresql://." ;;
-        esac
+        problem="$(database_url_problem "$database_url")"
+        [ -n "$problem" ] || break
+        reject_answer "$problem"
     done
 fi
 url="http://localhost:${port}"
@@ -266,7 +328,13 @@ install_cli "$release"
 if [ "$install_type" = "1" ]; then
     mkdir -p "$cli_data_dir"
     chmod 700 "$cli_data_dir"
-    # The CLI acts as the owner that setup creates next, in place of any login it has.
+    # The CLI acts as the owner that setup creates next, in place of any login it has, which is kept in a backup.
+    if [ -e "$cli_login" ]; then
+        previous_url="$(sed -n 's/.*"url":"\([^"]*\)".*/\1/p' "$cli_login")"
+        login_backup="${cli_login}.backup.$(date +%Y%m%d-%H%M%S)"
+        mv "$cli_login" "$login_backup"
+        say "Moved the CLI's previous login, to ${previous_url:-another server}, to ${login_backup}."
+    fi
     printf '{"url":"%s","api_key":"%s","key_id":"%s"}\n' "$url" "$api_key" "$api_key_id" > "$cli_login"
     say "Logged ProtoMap CLI in to ${url}."
 fi

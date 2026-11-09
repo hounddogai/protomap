@@ -96,12 +96,15 @@ organization sees. Your other scans, such as of uncommitted changes or other bra
 
 ## Connect a coding agent
 
-Add the CLI to your coding agent as an MCP server, from a repository's folder. While the agent runs, the CLI scans the
-repository as files are saved, so the agent sees your changes laid over the graph:
+Add the CLI to your coding agent as an MCP server, once for every repository. While the agent runs, the CLI scans the
+repository the agent works in as files are saved, so the agent sees your changes laid over the graph. Those scans
+upload to your server, as `protomap scan` does:
 
 ```shell
-claude mcp add protomap -- protomap mcp serve
+claude mcp add -s user protomap -- protomap mcp serve
 ```
+
+To add it to one repository instead, run the command from the repository's folder without `-s user`.
 
 **Scan a Repository** in the platform's sidebar gives the command for Codex, Gemini CLI, Copilot CLI, VS Code,
 OpenCode, Amp, Droid, and Qwen Code, and the JSON for other agents, which run `protomap mcp serve` over standard input

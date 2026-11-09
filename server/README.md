@@ -19,11 +19,18 @@ cd protomap
 
 This README's other commands also run from `protomap`, the root of the clone.
 
-The installer will ask you to choose the installation type:
+The installer will ask you to choose the installation type and the server's port, 3300 by default:
 
 1. **Trial:** The quickest way to try ProtoMap. PostgreSQL is set up locally for you.
 2. **Production:** Connects ProtoMap to your own PostgreSQL 18 database. This option requires more setup and
    maintenance.
+
+To install without questions, such as from a script, give your choices as options:
+
+```shell
+./server/scripts/install.sh --trial --port=3300
+PROTOMAP_DATABASE_URL='postgres://USER:PASSWORD@HOST:PORT/DATABASE' ./server/scripts/install.sh --production
+```
 
 When the installation finishes:
 
@@ -38,6 +45,8 @@ repository right away:
 ```shell
 protomap scan /path/to/repository
 ```
+
+A login the CLI already had moves to a backup next to it, such as `~/.protomap/login.json.backup.20260101-120000`.
 
 To install the CLI on other computers and connect coding agents, see the [main README](../README.md).
 
