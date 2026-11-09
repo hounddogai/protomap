@@ -1,4 +1,4 @@
-# The build context of public/self-hosted/Dockerfile is the repository root. Send only what the image needs.
+# The build context of public/server/Dockerfile is the repository root. Send only what the image needs.
 *
 !Cargo.toml
 !Cargo.lock
@@ -11,13 +11,13 @@ crates/server/ui/
 !crates/server/ui/patches/
 !crates/server/ui/index.html
 !crates/server/ui/api-docs.html
+!crates/server/ui/admin.html
 !crates/server/ui/tsconfig.json
 !crates/server/ui/tsconfig.app.json
 !crates/server/ui/tsconfig.node.json
 !crates/server/ui/vite.config.ts
 !crates/server/ui/public/
 !crates/server/ui/src/
-!public/self-hosted/scripts/entrypoint.sh
 **/node_modules/
 **/dist/
 **/test-results/

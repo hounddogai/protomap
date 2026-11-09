@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # This script's folder, and the folder above it with compose.yaml and .env, as the command that ran the script names
-# them, such as ./self-hosted/scripts and ./self-hosted from the root of the clone, so the commands and files the
+# them, such as ./server/scripts and ./self-hosted from the root of the clone, so the commands and files the
 # script names work from where it ran.
 scripts="$(dirname "$0")"
 folder="$(dirname "$scripts")"

@@ -1,15 +1,15 @@
 # ProtoMap Server.
 #
 # Quick start, from the root of the clone:
-#   1. ./self-hosted/scripts/install.sh (generates .env with secrets and a setup key, starts the services, and installs
+#   1. ./server/scripts/install.sh (generates .env with secrets and a setup key, starts the services, and installs
 #      the CLI)
 #   2. Open http://localhost:3300, enter the setup key the installer printed, and name your organization and create its
 #      owner.
-# Upgrade with ./self-hosted/scripts/upgrade.sh, and remove ProtoMap with ./self-hosted/scripts/uninstall.sh.
+# Upgrade with ./server/scripts/upgrade.sh, and remove ProtoMap with ./server/scripts/uninstall.sh.
 #
 # The services run the image hounddogai/protomap from Docker Hub, the latest release unless PROTOMAP_VERSION names
 # another. The server and the worker scale out; the proxy spreads requests across the server's replicas:
-#   docker compose --file self-hosted/compose.yaml up --detach --wait --scale server=3 --scale worker=2
+#   docker compose --file server/compose.yaml up --detach --wait --scale server=3 --scale worker=2
 #
 # Set PROTOMAP_PORT to change the published port, and PROTOMAP_BIND_ADDRESS=127.0.0.1 to accept connections only from
 # the Docker host, the computer that runs this stack. The proxy publishes the job queue dashboard on 127.0.0.1 of the
@@ -17,7 +17,7 @@
 #
 # Configuration comes from .env next to this file, or from the file named by --env-file. Development runs the server and
 # the worker on the host, and uses only the postgres service, with shell/env/.env.dev:
-#   docker compose --file public/self-hosted/compose.yaml --env-file shell/env/.env.dev up --detach --wait postgres
+#   docker compose --file public/server/compose.yaml --env-file shell/env/.env.dev up --detach --wait postgres
 # To run the full stack from source, including the development stand-ins, use:
 #   shell/scripts/dev containers --env-file <env file>
 
@@ -25,8 +25,9 @@
 # it, which keeps development's PostgreSQL apart from an installation.
 name: protomap
 
-# Shared definition of the containers that run the ProtoMap image. `command` selects the role. They have no container
-# names and publish no ports, so they scale; the proxy is the way in.
+# Shared definition of the containers that run the ProtoMap image, whose entrypoint is the server's binary: `command`
+# selects its role, and the worker runs its own binary instead. They have no container names and publish no ports, so
+# they scale; the proxy is the way in.
 x-protomap: &protomap
   image: hounddogai/protomap:${PROTOMAP_VERSION:-latest}
   restart: unless-stopped
@@ -35,12 +36,12 @@ x-protomap: &protomap
 
 # The configuration of the server and the worker.
 x-protomap-environment: &protomap-environment
-  PROTOMAP_DATABASE_URL: ${PROTOMAP_DATABASE_URL:?is required. Run ./self-hosted/scripts/install.sh or provide a postgres:// or postgresql:// URL}
+  PROTOMAP_DATABASE_URL: ${PROTOMAP_DATABASE_URL:?is required. Run ./server/scripts/install.sh or provide a postgres:// or postgresql:// URL}
   PROTOMAP_SETUP_KEY: ${PROTOMAP_SETUP_KEY:-}
   PROTOMAP_INITIAL_API_KEY_ID: ${PROTOMAP_INITIAL_API_KEY_ID:-}
   PROTOMAP_INITIAL_API_KEY_HASH: ${PROTOMAP_INITIAL_API_KEY_HASH:-}
   PROTOMAP_ADMIN_PASSWORD: ${PROTOMAP_ADMIN_PASSWORD:-}
-  PROTOMAP_SECRET_KEY: ${PROTOMAP_SECRET_KEY:?is required. Run ./self-hosted/scripts/install.sh or generate one with openssl rand -hex 32}
+  PROTOMAP_SECRET_KEY: ${PROTOMAP_SECRET_KEY:?is required. Run ./server/scripts/install.sh or generate one with openssl rand -hex 32}
   PROTOMAP_ARTIFACT_CACHE_MB: ${PROTOMAP_ARTIFACT_CACHE_MB:-}
   PROTOMAP_DATABASE_CONNECTIONS: ${PROTOMAP_DATABASE_CONNECTIONS:-}
   PROTOMAP_MAX_RESPONSES: ${PROTOMAP_MAX_RESPONSES:-}
@@ -49,6 +50,15 @@ x-protomap-environment: &protomap-environment
   PROTOMAP_SMTP_URL: ${PROTOMAP_SMTP_URL:-}
   PROTOMAP_SMTP_FROM: ${PROTOMAP_SMTP_FROM:-}
   PROTOMAP_MODEL_CATALOG_URL: ${PROTOMAP_MODEL_CATALOG_URL:-}
+  PROTOMAP_MINIMUM_CLI_VERSION: ${PROTOMAP_MINIMUM_CLI_VERSION:-}
+  PROTOMAP_OPENAI_API_BASE: ${PROTOMAP_OPENAI_API_BASE:-}
+  PROTOMAP_ANTHROPIC_API_BASE: ${PROTOMAP_ANTHROPIC_API_BASE:-}
+  PROTOMAP_GOOGLE_GEMINI_API_BASE: ${PROTOMAP_GOOGLE_GEMINI_API_BASE:-}
+  PROTOMAP_XAI_API_BASE: ${PROTOMAP_XAI_API_BASE:-}
+  PROTOMAP_AWS_BEDROCK_API_BASE: ${PROTOMAP_AWS_BEDROCK_API_BASE:-}
+  PROTOMAP_MICROSOFT_FOUNDRY_API_BASE: ${PROTOMAP_MICROSOFT_FOUNDRY_API_BASE:-}
+  PROTOMAP_GOOGLE_AGENT_PLATFORM_API_BASE: ${PROTOMAP_GOOGLE_AGENT_PLATFORM_API_BASE:-}
+  PROTOMAP_TYPESAFE_API_BASE: ${PROTOMAP_TYPESAFE_API_BASE:-}
   PROTOMAP_API_DOCS: ${PROTOMAP_API_DOCS:-}
   RUST_LOG: ${RUST_LOG:-warn}
 
@@ -63,7 +73,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-protomap}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-protomap}
     # Only the Docker host reaches it. Without PROTOMAP_POSTGRES_PORT, Docker picks the port; find it with:
-    # docker compose --file self-hosted/compose.yaml port postgres 5432
+    # docker compose --file server/compose.yaml port postgres 5432
     ports:
       - "127.0.0.1:${PROTOMAP_POSTGRES_PORT:-}:5432"
     volumes:
@@ -87,8 +97,9 @@ services:
       postgres:
         condition: service_healthy
         required: false
+    # The image has no shell or HTTP client, so the server's binary asks the server itself.
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8800/health"]
+      test: ["CMD", "/usr/local/bin/protomap-server", "health"]
       interval: 10s
       timeout: 5s
       retries: 18
@@ -97,7 +108,7 @@ services:
   # The workers run the jobs, each job once, and serve the job queue dashboard when PROTOMAP_ADMIN_PASSWORD is set.
   worker:
     <<: *protomap
-    command: worker
+    entrypoint: ["/usr/local/bin/protomap-worker"]
     environment:
       <<: *protomap-environment
       PROTOMAP_DASHBOARD_LISTEN: 0.0.0.0:8801
@@ -139,10 +150,11 @@ configs:
       	auto_https off
       	persist_config off
       	servers {
-      		# Pass on the X-Forwarded-Proto and X-Forwarded-Host of a proxy that ends TLS in front of the stack, which
-      		# the server reads to mark session cookies Secure and to write its install scripts' address. Only proxies
-      		# on private networks or the Docker host are trusted, and those PROTOMAP_TRUSTED_PROXIES adds, so a client
-      		# that reaches the published port directly cannot set them.
+      		# Pass on the X-Forwarded-Proto of a proxy that ends TLS in front of the stack, which the server reads to
+      		# mark session cookies Secure. Only proxies on private networks or the Docker host are trusted, and those
+      		# PROTOMAP_TRUSTED_PROXIES adds, so on rootful Docker Engine a client that reaches the published port from
+      		# the internet cannot set it. One on a private network can, as can every client under Docker Desktop or
+      		# rootless Docker, which shows them all as from its gateway; that changes only their own responses' cookies.
       		trusted_proxies static private_ranges ${PROTOMAP_TRUSTED_PROXIES:-}
       	}
       }
@@ -150,8 +162,8 @@ configs:
       # The API and the platform UI, spread across the server's replicas, which Docker's DNS lists. Every replica
       # serves every request: browsers get their events from whichever replica they reach.
       :3300 {
-      	# Compresses the JSON and the platform's files for browsers that accept it. Caddy never compresses a WebSocket
-      	# handshake, sends a server-sent event stream as it is written, and flushes what it compressed with each flush.
+      	# Compresses the JSON and the platform's files for browsers that accept it. Caddy sends a server-sent event
+      	# stream, such as the platform's events, as it is written, and flushes what it compressed with each flush.
       	encode zstd gzip
       	reverse_proxy {
       		dynamic a server 8800 {

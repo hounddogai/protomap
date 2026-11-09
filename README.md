@@ -4,7 +4,7 @@ ProtoMap by HoundDog.ai maps your gRPC services: which services call which, thro
 down to every call site. Run it on your own infrastructure, explore your architecture in its platform, ask its assistant
 what a change would break, and give the same graph to coding agents such as Claude Code.
 
-![The services of a scanned repository, and how they call each other](self-hosted/images/service-sphere.png)
+![The services of a scanned repository, and how they call each other](server/images/service-sphere.png)
 
 ## What you can do
 
@@ -19,12 +19,12 @@ what a change would break, and give the same graph to coding agents such as Clau
   connect.
 - **Give coding agents the graph.** Over MCP, with your uncommitted changes laid over the shared graph.
 
-ProtoMap reads `.proto` files and the gRPC code that serves and calls them in Go, C#, Java, Kotlin, Python, Rust, Swift,
-and TypeScript.
+ProtoMap reads `.proto` files and the gRPC code that serves and calls them in Go, C#, Java, JavaScript, Kotlin, Python,
+Rust, Swift, and TypeScript.
 
-![CheckoutService and the services it depends on](self-hosted/images/service-detail.png)
+![CheckoutService and the services it depends on](server/images/service-detail.png)
 
-![Every call site of ProductCatalogService/GetProduct](self-hosted/images/call-sites.png)
+![Every call site of ProductCatalogService/GetProduct](server/images/call-sites.png)
 
 ## Install ProtoMap Server
 
@@ -33,13 +33,13 @@ You need Docker with Compose 2.23.1 or newer, and at least 4 GB of RAM and 20 GB
 ```shell
 git clone https://github.com/hounddogai/protomap
 cd protomap
-./self-hosted/scripts/install.sh
+./server/scripts/install.sh
 ```
 
 Open the address the installer prints, enter the setup key it shows, and create your organization and its owner. Setup
 then lets you connect an AI provider for the assistant, such as Anthropic or OpenAI, with your own API key, and shows
 how to install the CLI. The installer also installs the CLI on the computer it runs on. See
-[`self-hosted/`](self-hosted/README.md) for more.
+[`server/`](server/README.md) for more.
 
 ## Scan your repositories with the CLI
 
@@ -71,12 +71,12 @@ curl -fsSL https://protomap.ai/install.sh | sh -s -- --version 0.1.0
 & ([scriptblock]::Create((irm https://protomap.ai/install.ps1))) -Version 0.1.0
 ```
 
-The CLI keeps itself up to date: at most once a day, a command downloads a newer release in the background for the
-next one. It does not in CI, in containers, when installed as root or as a Windows administrator, or when installed at
-a given version, which then stays, as the CLI that ProtoMap Server's installer installs at the server's release does.
-Run `protomap update` to update by hand, `protomap update --auto on` or `off` to choose, and
-`protomap update --rollback` to go back to the version an update replaced. `PROTOMAP_DISABLE_AUTOUPDATE=1` turns
-automatic updates off for one command or a whole environment.
+The CLI keeps itself up to date: at most once a day, a command downloads a newer release in the background for the next
+one. It does not in CI, in containers, when installed as root or by a Windows administrator into Program Files, or when
+installed at a given version, which then stays, as the CLI that ProtoMap Server's installer installs at the server's
+release does. Run `protomap update` to update by hand, `protomap update --auto on` or `off` to choose, and `protomap
+update --rollback` to go back to the version an update replaced. `PROTOMAP_DISABLE_AUTOUPDATE=1` turns automatic updates
+off for one command or a whole environment.
 
 Log in to your server, then scan a repository:
 

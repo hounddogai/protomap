@@ -14,7 +14,7 @@ Run ProtoMap Server in your own environment.
 ```shell
 git clone https://github.com/hounddogai/protomap.git
 cd protomap
-./self-hosted/scripts/install.sh
+./server/scripts/install.sh
 ```
 
 This README's other commands also run from `protomap`, the root of the clone.
@@ -43,10 +43,10 @@ To install the CLI on other computers and connect coding agents, see the [main R
 
 ## Configuration
 
-The installer writes your settings to `self-hosted/.env`, and [`self-hosted/.env.example`](.env.example) explains every
-setting. After you change `self-hosted/.env`, apply it with `docker compose --file self-hosted/compose.yaml up -d`.
+The installer writes your settings to `server/.env`, and [`server/.env.example`](.env.example) explains every
+setting. After you change `server/.env`, apply it with `docker compose --file server/compose.yaml up -d`.
 
-Back up `self-hosted/.env` along with your database. Its `PROTOMAP_SECRET_KEY` encrypts the AI provider API keys that
+Back up `server/.env` along with your database. Its `PROTOMAP_SECRET_KEY` encrypts the AI provider API keys that
 ProtoMap Server stores, which cannot be read without it.
 
 By default, ProtoMap Server is reachable from other machines on your network over plain HTTP. For anything but a trial,
@@ -59,16 +59,16 @@ Upgrading keeps your configuration and data, and also upgrades the CLI. Back up 
 Server is briefly unavailable while the upgrade runs.
 
 ```shell
-git pull && ./self-hosted/scripts/upgrade.sh
+git pull && ./server/scripts/upgrade.sh
 ```
 
-ProtoMap Server runs the latest release unless `PROTOMAP_VERSION` in `self-hosted/.env` names another, such as `1.2.3`.
+ProtoMap Server runs the latest release unless `PROTOMAP_VERSION` in `server/.env` names another, such as `1.2.3`.
 If the upgrade fails, the previous version starts again. Fix the reported error and run
-`./self-hosted/scripts/upgrade.sh` again.
+`./server/scripts/upgrade.sh` again.
 
 The upgrade refuses a release older than the one running. To go back to one, restore the database backup made before
-upgrading from it, set `PROTOMAP_VERSION` in `self-hosted/.env` to that release, then run
-`docker compose --file self-hosted/compose.yaml down` and `./self-hosted/scripts/upgrade.sh`.
+upgrading from it, set `PROTOMAP_VERSION` in `server/.env` to that release, then run
+`docker compose --file server/compose.yaml down` and `./server/scripts/upgrade.sh`.
 
 ## Uninstall
 
@@ -76,8 +76,8 @@ Uninstall removes ProtoMap Server and its data. It keeps the CLI, configuration 
 PostgreSQL database.
 
 ```shell
-./self-hosted/scripts/uninstall.sh
+./server/scripts/uninstall.sh
 ```
 
-To start over with a fresh installation, uninstall, then run `./self-hosted/scripts/install.sh` again. With your own
+To start over with a fresh installation, uninstall, then run `./server/scripts/install.sh` again. With your own
 PostgreSQL, use a new or empty database.
