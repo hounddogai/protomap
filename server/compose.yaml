@@ -22,7 +22,8 @@
 #   shell/scripts/dev containers --env-file <env file>
 
 # Keep the stack grouped under this project name in Docker Compose and Docker Desktop. COMPOSE_PROJECT_NAME overrides
-# it, which keeps development's PostgreSQL apart from an installation.
+# it, which install.sh writes to .env, so that each installation has a project, containers, and volumes of its own,
+# and which keeps development's PostgreSQL apart from an installation.
 name: protomap
 
 # Shared definition of the containers that run the ProtoMap image, whose entrypoint is the server's binary: `command`
@@ -45,6 +46,7 @@ x-protomap-environment: &protomap-environment
   PROTOMAP_ARTIFACT_CACHE_MB: ${PROTOMAP_ARTIFACT_CACHE_MB:-}
   PROTOMAP_DATABASE_CONNECTIONS: ${PROTOMAP_DATABASE_CONNECTIONS:-}
   PROTOMAP_MAX_RESPONSES: ${PROTOMAP_MAX_RESPONSES:-}
+  PROTOMAP_STOP_DELAY_SECONDS: ${PROTOMAP_STOP_DELAY_SECONDS:-}
   PROTOMAP_CLIENT_ADDRESS_HEADER: ${PROTOMAP_CLIENT_ADDRESS_HEADER:-}
   PROTOMAP_PUBLIC_URL: ${PROTOMAP_PUBLIC_URL:-}
   PROTOMAP_SMTP_URL: ${PROTOMAP_SMTP_URL:-}
@@ -155,7 +157,9 @@ configs:
       		# PROTOMAP_TRUSTED_PROXIES adds, so on rootful Docker Engine a client that reaches the published port from
       		# the internet cannot set it. One on a private network can, as can every client under Docker Desktop or
       		# rootless Docker, which shows them all as from its gateway; that changes only their own responses' cookies.
-      		trusted_proxies static private_ranges ${PROTOMAP_TRUSTED_PROXIES:-}
+      		trusted_proxies static private_ranges${PROTOMAP_TRUSTED_PROXIES:+ ${PROTOMAP_TRUSTED_PROXIES}}
+      		# The proxy serves plain HTTP, which has no HTTP/2 or HTTP/3 without TLS.
+      		protocols h1
       	}
       }
 

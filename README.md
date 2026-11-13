@@ -36,8 +36,9 @@ cd protomap
 ./server/scripts/install.sh
 ```
 
-Open the address the installer prints, enter the setup key it shows, and create your organization and its owner. Setup
-then lets you connect an AI provider for the assistant, such as Anthropic or OpenAI, with your own API key, and shows
+Open the address the installer prints, enter the one-time setup key, and create your organization and its owner. The
+installer prints the key when it runs in a terminal, and keeps it as `PROTOMAP_SETUP_KEY` in `server/.env`. Setup then
+lets you connect an AI provider for the assistant, such as Anthropic or OpenAI, with your own API key, and shows
 how to install the CLI. The installer also installs the CLI on the computer it runs on. See
 [`server/`](server/README.md) for more.
 
@@ -87,12 +88,30 @@ protomap scan /path/to/repository
 
 `protomap login` opens the platform in your browser to approve the login, through an address on your computer that
 works once: if a second browser opens it, such as one of another user of the computer, the login is refused, and you
-run `protomap login` again. On a computer without a browser, such as a VM over SSH, or with `--no-open`, it prints a
+run the same command again. On a computer without a browser, such as a VM over SSH, or with `--no-open`, it prints a
 code instead: open `http://<your server>:3300/#/cli` in a browser on any computer and enter it. Check the account it
 says it logged in as. `protomap logout` forgets the server and revokes this computer's key on it.
 
 Scans of a pushed commit on a repository's primary branch, with no uncommitted changes, join the graph everyone in the
 organization sees. Your other scans, such as of uncommitted changes or other branches, only show to you.
+
+To see what a scan finds without a server or a login, add `--no-upload`: it prints the same summary, uploads nothing,
+and contacts no server, nor checks for CLI updates. Add `--json` to either command to print the result as JSON.
+
+ProtoMap finds gRPC code through the `.proto` files that define it. When a repository uses an API whose `.proto` files
+live elsewhere, such as in another repository or where its build downloads them, name their folder with `--proto-path`,
+once for each folder:
+
+```shell
+protomap scan --proto-path /path/to/api /path/to/repository
+```
+
+A message or service that the repository's own `.proto` files declare too stays theirs. The repository's later scans,
+and `protomap mcp serve`, read the same folders until `--proto-path` names others or `--no-proto-paths` forgets them.
+
+A scan that uploads also reads what the organization's other repositories declare in the shared graph, so a client
+whose API lives in another scanned repository needs no flag. Its own files and its `--proto-path` folders win over
+them, and `--no-shared-definitions` leaves them out.
 
 ## Connect a coding agent
 
@@ -104,7 +123,12 @@ upload to your server, as `protomap scan` does:
 claude mcp add -s user protomap -- protomap mcp serve
 ```
 
-To add it to one repository instead, run the command from the repository's folder without `-s user`.
+To add it to one repository instead, run the command from the repository's folder without `-s user`. Antigravity adds
+it for every repository with:
+
+```shell
+agy mcp add protomap protomap mcp serve
+```
 
 **Scan a Repository** in the platform's sidebar gives the command for Codex, Gemini CLI, Copilot CLI, VS Code,
 OpenCode, Amp, Droid, and Qwen Code, and the JSON for other agents, which run `protomap mcp serve` over standard input
@@ -122,4 +146,5 @@ protomap scan /path/to/repository
 
 A personal key acts as you, and also serves `protomap mcp serve` to an agent. An organization key, which admins create
 for continuous integration, scans without a user, so only scans that can join the shared graph count, and it cannot
-serve an agent.
+serve an agent. A scan with an organization key that the server does not keep, such as of a branch other than the
+primary one, fails with the reason, so the job notices, unless a newer commit is already in the shared graph.
