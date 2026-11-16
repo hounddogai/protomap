@@ -12,8 +12,9 @@
 #   docker compose --file server/compose.yaml up --detach --wait --scale server=3 --scale worker=2
 #
 # Set PROTOMAP_PORT to change the published port, and PROTOMAP_BIND_ADDRESS=127.0.0.1 to accept connections only from
-# the Docker host, the computer that runs this stack. The proxy publishes the job queue dashboard on 127.0.0.1 of the
-# Docker host only, at PROTOMAP_DASHBOARD_PORT.
+# the Docker host, the computer that runs this stack. A CLI logged in to the old port keeps it, so log it in again:
+#   protomap login --server http://localhost:<port>
+# The proxy publishes the job queue dashboard on 127.0.0.1 of the Docker host only, at PROTOMAP_DASHBOARD_PORT.
 #
 # Configuration comes from .env next to this file, or from the file named by --env-file. Development runs the server and
 # the worker on the host, and uses only the postgres service, with shell/env/.env.dev:
@@ -94,9 +95,12 @@ services:
     <<: *protomap
     command: server
     environment: *protomap-environment
+    # `restart: true` makes `docker compose restart` restart it only once PostgreSQL is healthy again, and the worker
+    # once the server is, so neither fails to reach the database while it restarts.
     depends_on:
       postgres:
         condition: service_healthy
+        restart: true
         required: false
     # The image has no shell or HTTP client, so the server's binary asks the server itself.
     healthcheck:
@@ -118,6 +122,7 @@ services:
     depends_on:
       server:
         condition: service_healthy
+        restart: true
 
   # The one service that publishes ports: the API and the platform UI, and the job queue dashboard for the Docker host
   # only.
