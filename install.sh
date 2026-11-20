@@ -113,7 +113,7 @@ esac
 case "$(uname -m)" in
     x86_64 | amd64) arch=amd64 ;;
     aarch64 | arm64) arch=arm64 ;;
-    *) fail 'ProtoMap CLI runs on amd64 and arm64.' "This computer is $(uname -m)." ;;
+    *) fail 'ProtoMap CLI runs on AMD64 and ARM64.' "This computer is $(uname -m)." ;;
 esac
 # A shell that runs under Rosetta on Apple silicon reports x86_64, and the arm64 build runs natively there.
 if [ "${os}" = macos ] && [ "${arch}" = amd64 ] && [ "$(sysctl -n hw.optional.arm64 2> /dev/null)" = 1 ]; then

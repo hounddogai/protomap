@@ -6,7 +6,7 @@
 # place of the entrypoint. Environment variables configure both. The final stage is distroless: it holds the binaries
 # and the C runtime they link, with no shell or package manager, and runs as an unprivileged user.
 # Users install the CLI from the GitHub release of the same version, which the platform's setup steps name.
-# .github/workflows/deploy-image.yml builds it from the repository root:
+# .github/workflows/deploy-self-hosted.yml builds it from the repository root:
 #   docker build -f public/server/Dockerfile --build-arg PROTOMAP_VERSION=<version> \
 #     -t hounddogai/protomap:<version> .
 # Releases build without caches, so nothing a build of another branch cached can end up in them. Development builds

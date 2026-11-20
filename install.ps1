@@ -79,7 +79,7 @@
     $Arch = switch ($Machine) {
         'AMD64' { 'amd64' }
         'ARM64' { 'arm64' }
-        default { throw "ProtoMap CLI runs on amd64 and arm64.`nThis computer is $Machine." }
+        default { throw "ProtoMap CLI runs on AMD64 and ARM64.`nThis computer is $Machine." }
     }
     $Releases = 'https://github.com/hounddogai/protomap/releases'
     if ($env:PROTOMAP_RELEASES_URL) {
