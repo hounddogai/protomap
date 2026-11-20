@@ -46,9 +46,9 @@
         } elseif ($Argument -in @('-Help', '-h', '--help')) {
             Write-Host "Usage: & ([scriptblock]::Create((irm $Scripts/install.ps1))) [-Version <version>]"
             Write-Host ''
-            Write-Host '  -v, -Version <version>  Install this version, such as 1.2.3 or 1.2.3-beta.1, which'
-            Write-Host '                          then stays: it turns automatic updates off. Without it, the'
-            Write-Host '                          latest release installs.'
+            Write-Host '  -v, -Version <version>  Install a specific version, such as 1.2.3 or 1.2.3-beta.1,'
+            Write-Host '                          and turn automatic updates off. Without it, the script'
+            Write-Host '                          installs the latest release.'
             Write-Host '  -h, -Help               Show this help.'
             return
         } else {
@@ -138,8 +138,8 @@
     }
     # A semicolon splits a PATH's folders, and Windows reads %NAME% in one as a variable.
     if ($Directory -match '[;%]') {
-        throw "A PATH cannot hold a folder named with a semicolon or a percent sign:`n  $Directory`n" +
-            'Choose another folder with PROTOMAP_INSTALL_DIR.'
+        throw "The install folder cannot contain a semicolon or a percent sign because it goes on your PATH:`n" +
+            "  $Directory`nSet PROTOMAP_INSTALL_DIR to another folder."
     }
     $Binary = Join-Path $Directory 'protomap.exe'
     # One installation into the folder at a time, so none deletes the files another is using. The lock file goes when
@@ -177,13 +177,13 @@
         # Both files come from one place, so they belong to the same release. GitHub answering that a file is missing
         # settles it, and any other failure turns to the copy.
         if ($Failure -and $Failure.Status -ne 404) {
-            Write-Host 'Cannot download from GitHub, so downloading from the copy on Google Cloud instead.'
+            Write-Host 'Could not download from GitHub. Trying the mirror on Google Cloud instead.'
             Write-Host ''
             $Source = $Mirror
             $Failure = Get-Release $Mirror
         }
         if ($Failure -and $Failure.Status -eq 404 -and $Failure.Name -eq 'SHA256SUMS') {
-            throw "Cannot find $Release, or its SHA256SUMS.`nSee releases at:`n  $Releases"
+            throw "Cannot find $Release.`nSee releases at:`n  $Releases"
         }
         if ($Failure -and $Failure.Status -eq 404) {
             throw "There is no build for Windows on $Arch in $Release.`nSee releases at:`n  $Releases"
@@ -204,9 +204,9 @@
         }
         # -ne compares regardless of case, since Get-FileHash answers in upper case.
         if ((Get-FileHash -LiteralPath $Download -Algorithm SHA256).Hash -ne $Expected) {
-            throw "Download of $Asset does not match SHA256SUMS.`n" +
-                "Installed CLI is unchanged.`n" +
-                'Run this again. A repeated failure means downloads get damaged in transit.'
+            throw "The download of $Asset does not match its checksum in SHA256SUMS.`n" +
+                "The installed CLI is unchanged.`n" +
+                'Run this again. If it keeps failing, something on the network may be changing downloads.'
         }
         # Windows cannot replace a program while it runs, such as the CLI a coding agent runs as its MCP server, but it
         # can rename it. The running CLI moves aside, and the next installation deletes it.
@@ -284,7 +284,7 @@
                 $ErrorActionPreference = $Preference
             }
             if ($IsSwitched -and $Automatic -eq 'off') {
-                $Updates = "Automatic updates are off, so it stays at $Version. Run protomap update --auto on to turn them on."
+                $Updates = "Automatic updates are off. The CLI stays at $Version. To turn them on, run: protomap update --auto on"
             } elseif ($IsSwitched) {
                 $Updates = 'Automatic updates are on again.'
             }
@@ -293,7 +293,7 @@
         # A binary whose version is unknown must not pass for the one bin\current names.
         Remove-Item -LiteralPath (Join-Path $Directory 'current') -Force -ErrorAction SilentlyContinue
         if ($IsShared) {
-            $Updates = 'It is installed for every user, so it does not update itself: run this script again as an administrator to upgrade it.'
+            $Updates = 'It is installed for all users and does not update itself. To upgrade it, run this script again as an administrator.'
         }
     }
     # The folder as the summary names it, from %LOCALAPPDATA% when it is there, which reads shorter.
@@ -345,9 +345,9 @@
     Write-Host ''
     Write-Host "     ${Bold}protomap login$Reset"
     Write-Host ''
-    Write-Host '     For a self-hosted ProtoMap Server, add --server=<your-server-url>.'
+    Write-Host '     For a self-hosted ProtoMap Server, add --server=<URL>.'
     Write-Host ''
-    Write-Host '  2. Add ProtoMap to your coding agent, e.g. Claude Code:'
+    Write-Host '  2. Add ProtoMap to your coding agent, such as Claude Code:'
     Write-Host ''
     Write-Host "     ${Bold}claude mcp add -s user protomap -- protomap mcp serve$Reset"
 } $args

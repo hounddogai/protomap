@@ -45,19 +45,19 @@ fail() {
 usage() {
     say "Usage: $0 [--trial | --production] [--port=PORT] [--dashboard-port=PORT] [--name=NAME]" \
         "       [--replace-login]" "" \
-        "Installs ProtoMap Server, and asks for each choice that no option gives." "" \
-        "  --trial                Bundled PostgreSQL, with ProtoMap CLI set up" \
-        "  --production           Your own PostgreSQL (version 18+), at the URL in PROTOMAP_DATABASE_URL" \
-        "                         or the one the installer asks for" \
+        "Installs ProtoMap Server. Asks for any setting not passed as an option." "" \
+        "  --trial                Bundled PostgreSQL, with the ProtoMap CLI set up" \
+        "  --production           External PostgreSQL 18+. Its URL comes from PROTOMAP_DATABASE_URL," \
+        "                         or the installer asks for it" \
         "  --port=PORT            The server's port [default: 3300]" \
-        "  --dashboard-port=PORT  The job queue dashboard's port, on 127.0.0.1 only [default: 8801, or the" \
-        "                         next free port, which the installer asks about]" \
+        "  --dashboard-port=PORT  The job queue dashboard's port, on 127.0.0.1 only [default: 8801; if it is" \
+        "                         taken, the installer asks for another]" \
         "  --name=NAME            The Docker Compose project name, which must be unused [default: protomap]" \
-        "  --replace-login        With --trial, log ProtoMap CLI in to this server without asking, even when" \
-        "                         it is logged in to another server, whose login is kept in a backup" "" \
-        "PROTOMAP_DASHBOARD_PORT and COMPOSE_PROJECT_NAME give the dashboard port and the name too." \
-        "Without input, such as in a script, every question takes its default answer: a CLI logged in to" \
-        "another server stays logged in to it, and is left as it is, unless --replace-login is given."
+        "  --replace-login        With --trial, log the CLI in to this server without asking, even if it is" \
+        "                         logged in to another server. The other login is backed up" "" \
+        "PROTOMAP_DASHBOARD_PORT and COMPOSE_PROJECT_NAME also set the dashboard port and project name." \
+        "When there is no input to read, such as in a script, every question takes its default answer." \
+        "A CLI logged in to another server then stays as it is, unless --replace-login is passed."
 }
 
 # Whether the input ended, such as the answers that a script pipes in, so no question can be asked again.
@@ -118,12 +118,12 @@ is_loopback_url() {
 # Prints why ProtoMap Server cannot use the PostgreSQL URL $1, or nothing when it can.
 database_url_problem() {
     case "$1" in
-        *"'"*) say "Percent-encode single quotes in your URL." ;;
+        *"'"*) say "Percent-encode single quotes in the URL." ;;
         postgres://* | postgresql://*)
             if is_loopback_url "$1"; then
-                say "ProtoMap Server runs in containers, so localhost won't reach this computer." \
-                    "Use your database server's network address instead." \
-                    "A PostgreSQL on this computer must also listen on that address," \
+                say "ProtoMap Server runs in containers, where localhost does not reach this computer." \
+                    "Use the database server's network address instead." \
+                    "If PostgreSQL runs on this computer, it must also listen on that address" \
                     "and accept connections from Docker's networks."
             fi
             ;;
@@ -173,14 +173,14 @@ project_problem() {
     folders="$(docker ps --all --filter "label=com.docker.compose.project=$1" \
         --format '{{ .Label "com.docker.compose.project.working_dir" }}' | sort -u | tr '\n' ' ')"
     if [ -n "$folders" ]; then
-        say "Docker already has containers named after $1, of the installation in ${folders% }."
+        say "Docker already has containers for the project \"$1\", from the installation in ${folders% }."
     elif [ -n "$(docker volume ls --quiet --filter "label=com.docker.compose.project=$1")" ]; then
-        say "Docker already has volumes named after $1, which an earlier installation left, such as its database."
+        say "An earlier installation left Docker volumes for the project \"$1\", such as its database."
     else
         return 0
     fi
     say "Choose another name for this installation with --name=NAME, such as --name=$1-2." \
-        "If you no longer need that installation, nor its data, remove both with:" \
+        "If that installation and its data are no longer needed, remove both with:" \
         "  docker compose --project-name $1 down --volumes"
 }
 
@@ -239,7 +239,7 @@ install_cli() {
     ) || fail "Cannot install ProtoMap CLI $1. Install it with:" \
         "  curl -fsSL https://protomap.ai/install.sh | sh -s -- --version $1"
     "${directory}/protomap" --version > /dev/null 2>&1 ||
-        fail "ProtoMap CLI was installed, but it does not run:" "  ${directory}/protomap"
+        fail "The ProtoMap CLI was installed, but it does not run:" "  ${directory}/protomap"
     # Outside the PATH of this terminal, the CLI runs in the next one, which reads the profile it went on the PATH in.
     case ":${PATH}:" in
         *":${directory}:"*) cli_ready=1 ;;
@@ -273,10 +273,10 @@ trap '[ -z "$env_temp" ] || rm -f "$env_temp"' EXIT
 
 title "Installing ProtoMap Server..."
 command -v docker > /dev/null 2>&1 ||
-    fail "Docker is required, and it was not found." "Install Docker first: https://docs.docker.com/get-docker/"
+    fail "Docker is required but was not found." "Install Docker first: https://docs.docker.com/get-docker/"
 docker compose version > /dev/null 2>&1 ||
-    fail "Docker Compose v2 is required, and it was not found." "Update Docker, or install Docker Compose."
-command -v curl > /dev/null 2>&1 || fail "curl is required to install ProtoMap CLI."
+    fail "Docker Compose v2 is required but was not found." "Update Docker, or install Docker Compose."
+command -v curl > /dev/null 2>&1 || fail "curl is required to install the ProtoMap CLI."
 docker ps > /dev/null 2>&1 ||
     fail "Docker is not running, or this user cannot use it." "Start Docker, then run ${scripts}/install.sh again."
 if [ -e .env ] || [ -L .env ]; then
@@ -289,8 +289,8 @@ problem="$(project_problem "$name")"
 
 if [ -z "$install_type" ]; then
     say "" "Choose an installation:" \
-        "  1) Trial       Bundled PostgreSQL, with ProtoMap CLI set up" \
-        "  2) Production  Your own PostgreSQL (version 18+)" ""
+        "  1) Trial       Bundled PostgreSQL, with the ProtoMap CLI set up" \
+        "  2) Production  External PostgreSQL (version 18+)" ""
     while :; do
         prompt "Choose 1 or 2 [default: 1]:"
         install_type="${REPLY:-1}"
@@ -343,7 +343,7 @@ if [ "$install_type" = "2" ] && [ -n "${PROTOMAP_DATABASE_URL:-}" ]; then
     problem="$(database_url_problem "$database_url")"
     [ -z "$problem" ] || fail "ProtoMap Server cannot use PROTOMAP_DATABASE_URL." "$problem"
 elif [ "$install_type" = "2" ]; then
-    say "" "Enter your PostgreSQL URL, in this form:" "  postgres://USER:PASSWORD@HOST:PORT/DATABASE" ""
+    say "" "Enter the PostgreSQL URL, in this form:" "  postgres://USER:PASSWORD@HOST:PORT/DATABASE" ""
     while :; do
         prompt "PostgreSQL URL:" secret
         database_url="$REPLY"
@@ -363,9 +363,9 @@ if [ -e "$cli_login" ] && [ "$previous_url" != "$url" ]; then
     has_other_login=1
 fi
 if [ "$install_type" = "1" ] && [ -n "$has_other_login" ] && [ -z "$is_login_replaced" ]; then
-    say "" "ProtoMap CLI is logged in to ${previous_url:-another server}."
+    say "" "The ProtoMap CLI is logged in to ${previous_url:-another server}."
     while :; do
-        prompt "Log it in to this server instead, and keep that login in a backup? [y/N]:"
+        prompt "Log the CLI in to this server instead, and back up its current login? [y/N]:"
         case "${REPLY:-n}" in
             y | Y | yes | YES) is_login_replaced=1 && break ;;
             n | N | no | NO) break ;;
@@ -425,7 +425,7 @@ env_temp="$(mktemp "$(pwd)/.env.tmp.XXXXXX")"
         printf 'PROTOMAP_INITIAL_API_KEY_HASH=%s\n' "$(hash_secret "$api_key")"
     fi
     if [ -n "$is_cli_kept" ]; then
-        printf '\n# The CLI stayed as it was, logged in to another server, so upgrade.sh leaves it as it is too.\n'
+        printf '\n# The CLI stayed logged in to another server. upgrade.sh leaves it unchanged too.\n'
         printf 'PROTOMAP_CLI_KEPT=1\n'
     fi
     if [ -n "$login_backup" ] && [ -n "$has_other_login" ]; then
@@ -442,8 +442,8 @@ export COMPOSE_PROJECT_NAME="$name" PROTOMAP_PORT="$port" PROTOMAP_DASHBOARD_POR
 
 say ""
 step "Pulling images" docker compose pull --quiet ||
-    fail "Cannot pull images." "Fix that error, then run ${scripts}/uninstall.sh," \
-        "and ${scripts}/install.sh."
+    fail "Cannot pull images." "Fix the error above." \
+        "Then run ${scripts}/uninstall.sh and ${scripts}/install.sh."
 if ! step "Starting ProtoMap Server" docker compose up --detach --wait; then
     # The services' states and the server's last log lines, which say why it did not start, such as a database it
     # cannot reach.
@@ -451,16 +451,16 @@ if ! step "Starting ProtoMap Server" docker compose up --detach --wait; then
     say "" "Last server log lines:"
     docker compose logs --no-log-prefix --tail 15 server || true
     say ""
-    hint="Fix that error."
-    [ "$install_type" = "1" ] || hint="Fix that error, such as in your PostgreSQL URL."
-    fail "ProtoMap Server did not start." "$hint" "Then run ${scripts}/uninstall.sh, and ${scripts}/install.sh."
+    hint="Fix the error above."
+    [ "$install_type" = "1" ] || hint="Fix the error above, for example in the PostgreSQL URL."
+    fail "ProtoMap Server did not start." "$hint" "Then run ${scripts}/uninstall.sh and ${scripts}/install.sh."
 fi
 release="$(server_release)"
 say "ProtoMap Server ${release} is now running at ${url}."
 if [ -n "$is_cli_kept" ]; then
     cli_ready=1
-    say "Left ProtoMap CLI as it is, since it is logged in to ${previous_url:-another server}." \
-        "To install the CLI of this server's release instead, run:" \
+    say "Left the ProtoMap CLI unchanged because it is logged in to ${previous_url:-another server}." \
+        "To install the CLI version that matches this server instead, run:" \
         "  curl -fsSL https://protomap.ai/install.sh | sh -s -- --version ${release}"
 else
     install_cli "$release"
@@ -471,19 +471,19 @@ if [ -n "$is_login_replaced" ]; then
     # The CLI acts as the owner that setup creates next, in place of any login it has, which is kept in a backup.
     if [ -n "$login_backup" ]; then
         mv "$cli_login" "$login_backup"
-        say "Moved the CLI's previous login, to ${previous_url:-another server}, to ${login_backup}."
+        say "Backed up the CLI's login for ${previous_url:-another server} to ${login_backup}."
     fi
     printf '{"url":"%s","api_key":"%s","key_id":"%s"}\n' "$url" "$api_key" "$api_key_id" > "$cli_login"
-    say "Logged ProtoMap CLI in to ${url}."
+    say "Logged the ProtoMap CLI in to ${url}."
 fi
 
 say "" "ProtoMap Server is installed. Next:" ""
 if [ -t 1 ]; then
     say "  1. Open ${url} and enter this one-time setup key:" "" "     ${color_bold}${setup_key}${color_reset}" ""
 else
-    say "  1. Open ${url} and enter the one-time setup key," "     PROTOMAP_SETUP_KEY in ${folder}/.env." ""
+    say "  1. Open ${url} and enter the one-time setup key" "     (PROTOMAP_SETUP_KEY in ${folder}/.env)." ""
 fi
-say "     Then create your organization and its owner." ""
+say "     Then create your organization and your Owner account." ""
 if [ -n "$is_login_replaced" ]; then
     if [ -n "$cli_ready" ]; then
         say "  2. Scan a repository:"

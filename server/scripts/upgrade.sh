@@ -130,13 +130,14 @@ install_cli() {
     local existing directory reason=""
     if command -v protomap > /dev/null 2>&1; then
         if [ "$(sed -n 's/^PROTOMAP_CLI_KEPT=//p' .env | tail -n 1)" = 1 ]; then
-            reason="install.sh left it as it was, logged in to another server"
+            reason="it is set up for another server"
         elif ! grep -Eq '"automatic": *false' "${HOME}/.protomap/settings.json" 2> /dev/null; then
             reason="it updates itself"
         fi
     fi
     if [ -n "$reason" ]; then
-        say "Left ProtoMap CLI as it is: ${reason}." "To install the CLI of this server's release instead, run:" \
+        say "Left the ProtoMap CLI unchanged because ${reason}." \
+            "To install the CLI version that matches this server instead, run:" \
             "  curl -fsSL https://protomap.ai/install.sh | sh -s -- --version $1"
         return
     fi
@@ -151,7 +152,7 @@ install_cli() {
     ) || fail "Cannot install ProtoMap CLI $1. Install it with:" \
         "  curl -fsSL https://protomap.ai/install.sh | sh -s -- --version $1"
     "${directory}/protomap" --version > /dev/null 2>&1 ||
-        fail "ProtoMap CLI was installed, but it does not run:" "  ${directory}/protomap"
+        fail "The ProtoMap CLI was installed, but it does not run:" "  ${directory}/protomap"
 }
 
 # The folder of the compose.yaml that created a container, as the shell that ran Docker Compose named it.
@@ -164,7 +165,8 @@ WORKING_DIR_LABEL='{{ index .Config.Labels "com.docker.compose.project.working_d
 check_project_folder() {
     local containers folders working_dir recorded
     containers="$(docker compose ps --all --quiet)" ||
-        fail "Cannot list the containers of ProtoMap Server." "Fix that error, and run ${scripts}/upgrade.sh again."
+        fail "Cannot list the containers of ProtoMap Server." \
+            "Fix the error above, then run ${scripts}/upgrade.sh again."
     [ -n "$containers" ] || return 0
     # Each container ID is a word of its own.
     # shellcheck disable=SC2086
@@ -172,18 +174,19 @@ check_project_folder() {
     while IFS= read -r working_dir <&3; do
         recorded="$(cd "$working_dir" 2> /dev/null && pwd -P)" || recorded=""
         if [ -n "$recorded" ] && [ "$recorded" != "$(pwd -P)" ]; then
-            fail "The Docker Compose project ${COMPOSE_PROJECT_NAME} is the installation in ${working_dir}," \
-                "not this one. Nothing was changed. Run the scripts in that installation's folder."
+            fail "The Docker Compose project \"${COMPOSE_PROJECT_NAME}\" belongs to the installation in" \
+                "${working_dir}, not this one. Nothing was changed. Run the scripts from that folder instead."
         fi
         [ -z "$recorded" ] || continue
-        say "" "ProtoMap Server ${COMPOSE_PROJECT_NAME} was installed from ${working_dir}, which no longer exists."
+        say "" "The Docker Compose project \"${COMPOSE_PROJECT_NAME}\" was installed from ${working_dir}," \
+            "and that folder no longer exists."
         REPLY=""
-        read -r -p "${color_prompt}Is this that installation, moved here? [y/N]:${color_reset} " || true
+        read -r -p "${color_prompt}Was that installation moved here? [y/N]:${color_reset} " || true
         case "${REPLY:-n}" in
             y | Y | yes | YES) ;;
             *)
                 fail "Nothing was changed." \
-                    "Run ${scripts}/upgrade.sh again, and answer y if this is that installation."
+                    "Run ${scripts}/upgrade.sh again, and answer y if that installation was moved here."
                 ;;
         esac
     done 3<<< "$folders"
@@ -197,10 +200,10 @@ migrate_database() {
 
 title "Upgrading ProtoMap Server..."
 command -v docker > /dev/null 2>&1 ||
-    fail "Docker is required, and it was not found." "Install Docker first: https://docs.docker.com/get-docker/"
+    fail "Docker is required but was not found." "Install Docker first: https://docs.docker.com/get-docker/"
 docker compose version > /dev/null 2>&1 ||
-    fail "Docker Compose v2 is required, and it was not found." "Update Docker, or install Docker Compose."
-command -v curl > /dev/null 2>&1 || fail "curl is required to install ProtoMap CLI."
+    fail "Docker Compose v2 is required but was not found." "Update Docker, or install Docker Compose."
+command -v curl > /dev/null 2>&1 || fail "curl is required to install the ProtoMap CLI."
 [ -e .env ] || [ -L .env ] ||
     fail "No installation found." "To install ProtoMap Server, run ${scripts}/install.sh."
 # This installation's Docker Compose project, which install.sh writes to .env. Docker Compose would take one that the
@@ -214,10 +217,10 @@ say "" "ProtoMap Server is unavailable during database migration." "Back up your
 # would run the release .env names again, and migrate the database to it.
 pinned="$(sed -n 's/^PROTOMAP_VERSION=//p' .env | tail -n 1 | tr -d "\"'")"
 if [ -n "${PROTOMAP_VERSION:-}" ] && [ "$PROTOMAP_VERSION" != "${pinned:-latest}" ]; then
-    say "" "PROTOMAP_VERSION=${PROTOMAP_VERSION} is set here, but not in ${folder}/.env," \
-        "so a later 'docker compose up' would run ${pinned:-the latest release} instead." \
-        "To keep ${PROTOMAP_VERSION}, cancel, and set PROTOMAP_VERSION in ${folder}/.env." \
-        "Then run ${scripts}/upgrade.sh again."
+    say "" "PROTOMAP_VERSION=${PROTOMAP_VERSION} is set in the shell, but not in ${folder}/.env." \
+        "A later 'docker compose up' would run ${pinned:-the latest release} instead." \
+        "To stay on ${PROTOMAP_VERSION}, cancel, set PROTOMAP_VERSION=${PROTOMAP_VERSION} in ${folder}/.env," \
+        "and run ${scripts}/upgrade.sh again."
 fi
 say ""
 confirm "Upgrade ProtoMap Server?" y || {
@@ -227,15 +230,15 @@ confirm "Upgrade ProtoMap Server?" y || {
 
 say ""
 step "Pulling images" docker compose pull --quiet ||
-    fail "Cannot pull images." "Fix that error, and run ${scripts}/upgrade.sh again."
+    fail "Cannot pull images." "Fix the error above, then run ${scripts}/upgrade.sh again."
 from="$(running_release)"
 release="$(server_release)"
 # An older release may not read what a later one wrote, such as its database schema.
 if [ -n "$from" ] && is_older_release "$release" "$from"; then
-    fail "ProtoMap Server ${release} is older than ${from}, which runs now." "Nothing was changed." \
+    fail "ProtoMap Server ${release} is older than the running version (${from})." "Nothing was changed." \
         "Set PROTOMAP_VERSION in ${folder}/.env to ${from} or later." \
-        "To go back to an earlier release, restore your database backup" \
-        "made before upgrading from that release, then run:" \
+        "To go back to an earlier version, restore a database backup made while that version" \
+        "was running, then run:" \
         "  docker compose --file ${folder}/compose.yaml down" "  ${scripts}/upgrade.sh"
 fi
 services="$(docker compose ps --all --format '{{.Service}}')"
@@ -252,9 +255,9 @@ if [ "$from" = "$release" ]; then
         docker compose up --detach --wait --remove-orphans \
         --scale "server=${server_scale}" --scale "worker=${worker_scale}"; then
         show_server_log
-        fail "ProtoMap Server did not start." "Fix that error, and run ${scripts}/upgrade.sh again."
+        fail "ProtoMap Server did not start." "Fix the error above, then run ${scripts}/upgrade.sh again."
     fi
-    say "ProtoMap Server ${release}, the release that ran already, is running at ${url}."
+    say "ProtoMap Server ${release} is already running at ${url}."
     install_cli "$release"
     say "" "ProtoMap Server is up to date."
     exit 0
@@ -275,27 +278,27 @@ if [ "$status" -ne 0 ]; then
     # ProtoMap changes its one schema migration in place, so a release whose schema differs cannot use the database.
     if [ "$status" -eq 3 ]; then
         fail "ProtoMap Server ${release} cannot use this database's schema." ${running[@]+"${running[@]}"} \
-            "To run ${release}, back up what you need, then start over with:" \
+            "To run ${release}, back up any data to keep, then start over with:" \
             "  ${scripts}/uninstall.sh" "  ${scripts}/install.sh" \
             "Starting over deletes every organization, account, and scan."
     fi
     fail "Database migration failed." ${running[@]+"${running[@]}"} \
-        "Fix that error, and run ${scripts}/upgrade.sh again."
+        "Fix the error above, then run ${scripts}/upgrade.sh again."
 fi
 
 if ! step "Starting ProtoMap Server ${release}" \
     docker compose up --detach --wait --force-recreate --remove-orphans \
     --scale "server=${server_scale}" --scale "worker=${worker_scale}"; then
     show_server_log
-    fail "ProtoMap Server did not start." "Fix that error, and run ${scripts}/upgrade.sh again."
+    fail "ProtoMap Server did not start." "Fix the error above, then run ${scripts}/upgrade.sh again."
 fi
 say "ProtoMap Server ${release} is now running at ${url}."
 install_cli "$release"
 # Another release may read scans of another format, or analyze code anew: the platform marks each repository that it
 # needs scanned again, and a CLI of the old release on another computer may be refused.
 say "" "ProtoMap Server is upgraded. Next:" "" \
-    "  1. Scan again each repository that the platform marks \"Needs a new scan\". The shared graph shows" \
-    "     the new scans once every such repository is scanned again or removed." \
-    "  2. On other computers, install ProtoMap CLI ${release}, the server's release:" \
+    "  1. Rescan each repository that ProtoMap marks \"Needs a new scan\". Your organization sees" \
+    "     the new scans once every marked repository is rescanned or removed." \
+    "  2. On other computers, install the CLI version that matches this server:" \
     "     curl -fsSL https://protomap.ai/install.sh | sh -s -- --version ${release}" \
-    "     A CLI that its install script installed updates itself when the server asks it to."
+    "     A CLI with automatic updates turned on updates itself when the server requires it."

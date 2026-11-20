@@ -79,7 +79,8 @@ WORKING_DIR_LABEL='{{ index .Config.Labels "com.docker.compose.project.working_d
 check_project_folder() {
     local containers folders working_dir recorded
     containers="$(docker compose ps --all --quiet)" ||
-        fail "Cannot list the containers of ProtoMap Server." "Fix that error, and run ${scripts}/uninstall.sh again."
+        fail "Cannot list the containers of ProtoMap Server." \
+            "Fix the error above, then run ${scripts}/uninstall.sh again."
     [ -n "$containers" ] || return 0
     # Each container ID is a word of its own.
     # shellcheck disable=SC2086
@@ -87,18 +88,19 @@ check_project_folder() {
     while IFS= read -r working_dir <&3; do
         recorded="$(cd "$working_dir" 2> /dev/null && pwd -P)" || recorded=""
         if [ -n "$recorded" ] && [ "$recorded" != "$(pwd -P)" ]; then
-            fail "The Docker Compose project ${COMPOSE_PROJECT_NAME} is the installation in ${working_dir}," \
-                "not this one. Nothing was changed. Run the scripts in that installation's folder."
+            fail "The Docker Compose project \"${COMPOSE_PROJECT_NAME}\" belongs to the installation in" \
+                "${working_dir}, not this one. Nothing was changed. Run the scripts from that folder instead."
         fi
         [ -z "$recorded" ] || continue
-        say "" "ProtoMap Server ${COMPOSE_PROJECT_NAME} was installed from ${working_dir}, which no longer exists."
+        say "" "The Docker Compose project \"${COMPOSE_PROJECT_NAME}\" was installed from ${working_dir}," \
+            "and that folder no longer exists."
         REPLY=""
-        read -r -p "${color_prompt}Is this that installation, moved here? [y/N]:${color_reset} " || true
+        read -r -p "${color_prompt}Was that installation moved here? [y/N]:${color_reset} " || true
         case "${REPLY:-n}" in
             y | Y | yes | YES) ;;
             *)
                 fail "Nothing was changed." \
-                    "Run ${scripts}/uninstall.sh again, and answer y if this is that installation."
+                    "Run ${scripts}/uninstall.sh again, and answer y if that installation was moved here."
                 ;;
         esac
     done 3<<< "$folders"
@@ -118,9 +120,9 @@ dump_database() {
 
 title "Uninstalling ProtoMap Server..."
 command -v docker > /dev/null 2>&1 ||
-    fail "Docker is required, and it was not found." "Install Docker first: https://docs.docker.com/get-docker/"
+    fail "Docker is required but was not found." "Install Docker first: https://docs.docker.com/get-docker/"
 docker compose version > /dev/null 2>&1 ||
-    fail "Docker Compose v2 is required, and it was not found." "Update Docker, or install Docker Compose."
+    fail "Docker Compose v2 is required but was not found." "Update Docker, or install Docker Compose."
 if ! { [ -e .env ] || [ -L .env ]; }; then
     say "" "No installation found. Nothing to uninstall."
     exit 0
@@ -172,10 +174,11 @@ say "" "Uninstalling will:" "  - Stop and remove containers."
 [ -z "$bundled" ] || say "  - Delete bundled database: every organization, account, and scan."
 say "  - Remove ${files}."
 if [ -n "$is_login_restored" ]; then
-    say "  - Log ProtoMap CLI back in to ${previous_url:-the server it was logged in to before}."
+    say "  - Log the ProtoMap CLI back in to ${previous_url:-the server it was logged in to before}."
 fi
-say "  - Keep ProtoMap CLI, Docker images, and other files in ${folder}."
-[ -n "$bundled" ] || say "" "Your own PostgreSQL keeps its data." "To install again, use a new or empty database."
+say "  - Keep the ProtoMap CLI, the Docker images, and the other files in ${folder}."
+[ -n "$bundled" ] ||
+    say "" "The external PostgreSQL database keeps its data." "To install again, use a new or empty database."
 say ""
 read -r -p "${color_prompt}Uninstall ProtoMap Server? [y/N]:${color_reset} " || true
 case "${REPLY:-n}" in
@@ -206,14 +209,15 @@ if [ -n "$back_up" ] && [ -n "$has_database" ]; then
         rm -f "$dump"
         fail "Cannot back up the database. Nothing was removed." \
             "Start ProtoMap Server with: docker compose --file ${folder}/compose.yaml up --detach --wait" \
-            "Then run ${scripts}/uninstall.sh again, or answer n to remove it without a backup."
+            "Then run ${scripts}/uninstall.sh again." \
+            "To uninstall without a backup instead, run it again and answer n to the backup question."
     fi
     backups+=("  ${folder}/${dump}")
 fi
 removing="Removing containers"
 [ -z "$bundled" ] || removing="Removing containers and data"
 step "$removing" docker compose down --volumes --remove-orphans ||
-    fail "Cannot remove containers." "Fix that error, and run ${scripts}/uninstall.sh again."
+    fail "Cannot remove containers." "Fix the error above, then run ${scripts}/uninstall.sh again."
 if [ -n "$back_up" ]; then
     mv .env ".env.backup.${stamp}"
     backups+=("  ${folder}/.env.backup.${stamp}")
@@ -229,15 +233,15 @@ else
 fi
 if [ -n "$is_login_restored" ]; then
     mv "$previous_login" "$restored_login"
-    say "Logged ProtoMap CLI back in to ${previous_url:-the server it was logged in to before}."
+    say "Logged the ProtoMap CLI back in to ${previous_url:-the server it was logged in to before}."
     # The installation pinned the CLI to its release, which the other server may not run.
     if grep -Eq '"automatic": *false' "${HOME}/.protomap/settings.json" 2> /dev/null; then
-        say "ProtoMap CLI stays at the release this installation pinned. To let it update itself again, run:" \
-            "  protomap update --auto on"
+        say "The ProtoMap CLI is still pinned to this server's version and will not update itself." \
+            "To turn automatic updates back on, run:" "  protomap update --auto on"
     fi
 elif [ -n "$previous_login" ]; then
-    say "ProtoMap CLI is logged in to another server now. Its login from before this installation is in:" \
-        "  $(shorten "$previous_login")"
+    say "The ProtoMap CLI is now logged in to another server. Its earlier login was not restored." \
+        "It is saved in:" "  $(shorten "$previous_login")"
 fi
 
 say "" "ProtoMap Server is uninstalled." "To reinstall, run ${scripts}/install.sh."
