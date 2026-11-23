@@ -9,8 +9,7 @@
 # .github/workflows/deploy-self-hosted.yml builds it from the repository root:
 #   docker build -f public/server/Dockerfile --build-arg PROTOMAP_VERSION=<version> \
 #     -t hounddogai/protomap:<version> .
-# Releases build without caches, so nothing a build of another branch cached can end up in them. Development builds
-# use docker/dev/Dockerfile.
+# Releases build without caches, so nothing a build of another branch cached can end up in them.
 
 FROM node:26-trixie-slim AS ui
 WORKDIR /build

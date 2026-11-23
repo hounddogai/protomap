@@ -16,7 +16,7 @@ what a change would break, and give the same graph to coding agents such as Clau
 - **Trace how a field flows.** Follow a protobuf field through the code step by step, from one service into the next.
 - **Ask the assistant.** It answers from your scans, with file locations, and draws diagrams, using the AI provider you
   connect.
-- **Give coding agents the graph.** Over MCP, with your uncommitted changes laid over the shared graph.
+- **Give coding agents the graph.** Over MCP, including your uncommitted changes.
 
 ProtoMap reads `.proto` files and the gRPC code that serves and calls them in Go, C#, Java, JavaScript, Kotlin, Python,
 Rust, Swift, and TypeScript.
@@ -57,21 +57,11 @@ The scripts install the latest [release](https://github.com/hounddogai/protomap/
 Windows, or `%ProgramFiles%\protomap\bin` for all users when run as an administrator. `PROTOMAP_INSTALL_DIR` names
 another folder. The Linux builds are static and run on any Linux, Alpine included.
 
-To install a given version, which then stays:
-
-```shell
-curl -fsSL https://protomap.ai/install.sh | sh -s -- --version 0.1.0
-```
-
-```powershell
-& ([scriptblock]::Create((irm https://protomap.ai/install.ps1))) -Version 0.1.0
-```
-
-Otherwise, the CLI keeps itself up to date: at most once a day, a command downloads a newer release in the background
-for the next one. It does not in CI, in containers, or when installed for all users, as root or by a Windows
-administrator. `protomap update` updates by hand, `protomap update --auto on` or `off` chooses, and
-`protomap update --rollback` goes back to the version an update replaced. `PROTOMAP_DISABLE_AUTOUPDATE=1` turns
-automatic updates off for one command or a whole environment.
+The CLI updates itself. At most once a day, a command downloads any newer release in the background, and the next
+command uses it. It does not update itself in CI, in containers, or when installed for all users, by root or a Windows
+administrator. Run `protomap update` to update now, `protomap update --auto off` or `--auto on` to turn automatic
+updates off or on, and `protomap update --rollback` to go back to the version an update replaced.
+`PROTOMAP_DISABLE_AUTOUPDATE=1` turns automatic updates off for one command or a whole environment.
 
 ## Scan your repositories
 
@@ -82,17 +72,19 @@ protomap login --server=http://<your server>:3300
 protomap scan /path/to/repository
 ```
 
-`protomap login` opens the platform in your browser to approve the login, at an address that works once: if another
-browser opened it first, such as one of another user of the computer, the login is refused, and you run the command
-again. Without a browser, such as over SSH, or with `--no-open`, it prints a code to enter at
-`http://<your server>:3300/#/cli` on any computer. Check the account it says it logged in as. `protomap logout` forgets
-the server and revokes this computer's key on it.
+`protomap login` opens ProtoMap in your browser so you can approve the login. The link works only once, so if another
+browser opens it first, such as another user's on the same computer, the login is refused and you need to run the
+command again. Without a browser, such as over SSH, or with `--no-open`, it prints a code to enter at
+`http://<your server>:3300/#/cli` on any computer. Afterward, check that it logged you in to the right account.
+`protomap logout` forgets the server and revokes this computer's key on it.
 
-Scans of a pushed commit on a repository's primary branch, with no uncommitted changes, join the graph everyone in the
-organization sees. Your other scans, such as of uncommitted changes or other branches, show only to you.
+A scan of a pushed commit on the primary branch, with no uncommitted changes, joins the graph everyone in your
+organization sees. A repository's first scan joins it too, whatever its branch or changes, until such a scan replaces
+it, unless the repository has no remote. Your other scans, such as of uncommitted changes or other branches, are visible
+only to you. After it uploads, each scan says which kind it is.
 
-`--no-upload` shows what a scan finds without a server or a login: it uploads nothing, contacts no server, and checks
-for no CLI update. `--json` prints the result as JSON.
+`--no-upload` shows what a scan finds without a server or a login: it uploads nothing, contacts no server, and skips
+the update check. `--json` prints the result as JSON.
 
 ProtoMap finds gRPC code through the `.proto` files that define it. When a repository uses an API whose `.proto` files
 live elsewhere, such as in another repository or where its build downloads them, name each folder with `--proto-path`:
@@ -102,15 +94,15 @@ protomap scan --proto-path /path/to/api /path/to/repository
 ```
 
 The repository's later scans, and `protomap mcp serve`, read the same folders until `--proto-path` names others or
-`--no-proto-paths` forgets them. A scan that uploads also reads what your organization's other scanned repositories
-declare, so an API that one of them holds needs no flag; `--no-shared-definitions` leaves those out. Either way, what
-the repository's own `.proto` files declare stays theirs.
+`--no-proto-paths` forgets them. A scan that uploads also reads the `.proto` files of your organization's other scanned
+repositories, so an API defined in one of them needs no flag. `--no-shared-definitions` skips them. Either way, the
+repository's own `.proto` files take priority.
 
 ## Connect a coding agent
 
 Add the CLI to your coding agent as an MCP server. While the agent runs, the CLI scans the repository it works in as
-files are saved, and uploads those scans, so the agent sees your changes laid over the graph. For Claude Code, in every
-repository:
+files are saved, and uploads those scans, so the agent sees the graph with your latest changes. For Claude Code, in
+every repository:
 
 ```shell
 claude mcp add -s user protomap -- protomap mcp serve
@@ -129,14 +121,14 @@ The agent reads the graph as you, so log in first, or use a personal API key.
 ## Containers, CI, and other automation
 
 Instead of logging in, set `PROTOMAP_URL` to your server and `PROTOMAP_API_KEY` to an API key from the platform's
-**Settings > API Keys**:
+**Settings › API Keys**:
 
 ```shell
 export PROTOMAP_URL=http://<your server>:3300 PROTOMAP_API_KEY=<key>
 protomap scan /path/to/repository
 ```
 
-A personal key acts as you, and also serves `protomap mcp serve` to an agent. An organization key, which admins create
-for continuous integration, scans without a user and cannot serve an agent. Its scans only keep the shared graph
-current, so one the server does not keep, such as of a branch other than the primary one, fails with the reason, unless
-a newer commit is already in the shared graph.
+A personal key acts as you, and also works with `protomap mcp serve`. An organization key, which admins create for
+continuous integration, scans without a user and cannot be used with `protomap mcp serve`. Its scans exist only to keep
+your organization's graph current, so a scan the server would not add to it, such as of a branch other than the primary
+one, fails with the reason, unless the graph already has a newer commit.

@@ -1,18 +1,10 @@
 #!/usr/bin/env bash
 #
 # Interactive upgrade for ProtoMap Server: keeps the configuration and data, migrates the database to the release
-# PROTOMAP_VERSION names, the latest by default, and upgrades the ProtoMap CLI to the same release.
+# PROTOMAP_VERSION names, the latest by default, and installs the latest ProtoMap CLI. It moves an
+# installation in ~/.protomap/server to the compose.yaml of the clone it is in, and runs the same from any folder.
 
 set -euo pipefail
-
-# This script's folder, and the folder above it with compose.yaml and .env, as the command that ran the script names
-# them, such as ./server/scripts and ./server from the root of the clone, so the commands and files the
-# script names work from where it ran.
-scripts="$(dirname "$0")"
-folder="$(dirname "$scripts")"
-[ "$scripts" != . ] || folder=..
-# Run from the folder with compose.yaml and .env.
-cd "$folder"
 
 color_bold=""
 color_done=""
@@ -36,6 +28,89 @@ fail() {
     shift
     [ "$#" -eq 0 ] || printf '%s\n' "$@" >&2
     exit 1
+}
+
+# $1 with the home folder written as ~, which reads shorter.
+# The ~ is printed as is, for the reader.
+# shellcheck disable=SC2088
+shorten() {
+    case "$1" in
+        "${HOME}"/*) printf '~/%s' "${1#"${HOME}/"}" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+# This script's folder in a clone of the repository, found through any symbolic links to the script, so that the script
+# runs the same from any folder and by any path. The clone's server folder has the compose.yaml it upgrades to.
+script="${BASH_SOURCE[0]:-}"
+[ -f "$script" ] || fail "Run this script from a clone of the repository:" \
+    "  git clone https://github.com/hounddogai/protomap.git" "  protomap/server/scripts/upgrade.sh"
+while [ -L "$script" ]; do
+    link="$(readlink "$script")"
+    case "$link" in
+        /*) script="$link" ;;
+        *) script="$(dirname "$script")/${link}" ;;
+    esac
+done
+script_folder="$(cd "$(dirname "$script")" && pwd -P)"
+release_compose="$(dirname "$script_folder")/compose.yaml"
+scripts="$(shorten "$script_folder")"
+# This user's installations, each in a folder named after its Docker Compose project, with its compose.yaml, its .env,
+# and the backups uninstall.sh makes. No clone holds them, so the scripts of any clone find them.
+installations="${HOME}/.protomap/server"
+
+usage() {
+    say "Usage: $0 [--name=NAME]" "" \
+        "Upgrades ProtoMap Server to the latest release, or the one PROTOMAP_VERSION in its .env names," \
+        "keeping its configuration and data, and installs the latest ProtoMap CLI." "" \
+        "  --name=NAME  The installation to upgrade, by its Docker Compose project name. Needed only when" \
+        "               ~/.protomap/server holds several"
+}
+
+# Leaves in installation the folder of the installation named $1, or else of this user's only one, or nothing when
+# there is none. Stops when several are installed and none is named. Keep it in step with uninstall.sh.
+find_installation() {
+    # Bash 3.2 matches ranges such as a-z by the locale's collation, which puts capitals among them.
+    local env names="" LC_ALL=C
+    installation=""
+    if [ -n "$1" ]; then
+        case "$1" in
+            [!a-z0-9]* | *[!a-z0-9_-]*) fail "No installation can be named \"$1\"." ;;
+        esac
+        if [ -e "${installations}/$1/.env" ] || [ -L "${installations}/$1/.env" ]; then
+            installation="${installations}/$1"
+        fi
+        return 0
+    fi
+    for env in "${installations}"/*/.env; do
+        [ -e "$env" ] || [ -L "$env" ] || continue
+        [ -z "$installation" ] || names="${names}, "
+        installation="$(dirname "$env")"
+        names="${names}$(basename "$installation")"
+    done
+    case "$names" in
+        *,*) fail "$(shorten "$installations") holds several installations: ${names}." \
+            "Choose one with --name=NAME." ;;
+    esac
+}
+
+# Prints each ProtoMap Server that Docker has from outside this user's installations, such as another user's, as its
+# Docker Compose project and the folder it was installed from. The image a container was created from keeps its name
+# even after its tag moves to a newer image. Keep it in step with uninstall.sh.
+other_installations() {
+    local containers image project folder
+    local format='{{ .Config.Image }} {{ index .Config.Labels "com.docker.compose.project" }} '
+    format+='{{ index .Config.Labels "com.docker.compose.project.working_dir" }}'
+    containers="$(docker ps --all --quiet --filter label=com.docker.compose.service=server)" || return 0
+    [ -n "$containers" ] || return 0
+    # Each container ID is a word of its own.
+    # shellcheck disable=SC2086
+    docker inspect --format "$format" $containers |
+        while read -r image project folder; do
+            case "$image" in hounddogai/protomap | hounddogai/protomap[:@]*) ;; *) continue ;; esac
+            case "$folder" in "${installations}"/*) continue ;; esac
+            printf '  "%s", from %s\n' "$project" "$folder"
+        done | sort -u
 }
 
 # Asks the yes or no question $1, with $2, y or n, as the answer for no input, which the prompt capitalizes, and
@@ -78,11 +153,13 @@ show_server_log() {
     say ""
 }
 
-# Prints the release of ProtoMap Server that compose.yaml runs, from its image's label. Run after the image is pulled.
+# Prints the release of ProtoMap Server that the clone's compose.yaml runs, from its image's label. Run after the image
+# is pulled.
 server_release() {
     local images image
-    images="$(docker compose config --images)"
-    image="$(grep -m 1 'hounddogai/protomap' <<< "$images")" || fail "compose.yaml does not run hounddogai/protomap."
+    images="$(docker compose --file "$release_compose" --project-directory "$installation" config --images)"
+    image="$(grep -m 1 'hounddogai/protomap' <<< "$images")" ||
+        fail "${release_compose} does not run hounddogai/protomap."
     docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image"
 }
 
@@ -120,37 +197,19 @@ is_release() {
     esac
 }
 
-# Installs release $1 of the ProtoMap CLI, the server's, so the two speak the same API. Installing a given release
-# turns the CLI's automatic updates off, so it stays at the server's release until an upgrade installs the next. It
-# replaces the CLI found on PATH, or else installs to ~/.local/bin, which the CLI's installer puts on the PATH in the
-# profile of the user's shell, and says where it went. Only the CLI install.sh pinned is replaced: one install.sh left
-# as it was, because it stayed logged in to another server (PROTOMAP_CLI_KEPT in .env), and one that updates itself
-# keep their release and update settings. Keep it in step with install.sh.
+# Installs the latest ProtoMap CLI, which then updates itself, since the server expects the latest CLI. It replaces the
+# CLI found on PATH, or else installs to ~/.local/bin, which the CLI's installer puts on the PATH in the profile of the
+# user's shell, and says where it went. Keep it in step with install.sh.
 install_cli() {
-    local existing directory reason=""
-    if command -v protomap > /dev/null 2>&1; then
-        if [ "$(sed -n 's/^PROTOMAP_CLI_KEPT=//p' .env | tail -n 1)" = 1 ]; then
-            reason="it is set up for another server"
-        elif ! grep -Eq '"automatic": *false' "${HOME}/.protomap/settings.json" 2> /dev/null; then
-            reason="it updates itself"
-        fi
-    fi
-    if [ -n "$reason" ]; then
-        say "Left the ProtoMap CLI unchanged because ${reason}." \
-            "To install the CLI version that matches this server instead, run:" \
-            "  curl -fsSL https://protomap.ai/install.sh | sh -s -- --version $1"
-        return
-    fi
+    local existing directory
     existing="$(command -v protomap || true)"
     directory="${existing:+$(dirname "$existing")}"
     directory="${directory:-${HOME}/.local/bin}"
     # The folders the CLI's installer creates are for everyone to read, whatever the caller's umask.
     (
         umask 022
-        curl -fsSL https://protomap.ai/install.sh |
-            PROTOMAP_INSTALL_DIR="$directory" PROTOMAP_INSTALL_BRIEF=1 sh -s -- --version "$1"
-    ) || fail "Cannot install ProtoMap CLI $1. Install it with:" \
-        "  curl -fsSL https://protomap.ai/install.sh | sh -s -- --version $1"
+        curl -fsSL https://protomap.ai/install.sh | PROTOMAP_INSTALL_DIR="$directory" PROTOMAP_INSTALL_BRIEF=1 sh
+    ) || fail "Cannot install the ProtoMap CLI. Install it with:" "  curl -fsSL https://protomap.ai/install.sh | sh"
     "${directory}/protomap" --version > /dev/null 2>&1 ||
         fail "The ProtoMap CLI was installed, but it does not run:" "  ${directory}/protomap"
 }
@@ -166,7 +225,7 @@ check_project_folder() {
     local containers folders working_dir recorded
     containers="$(docker compose ps --all --quiet)" ||
         fail "Cannot list the containers of ProtoMap Server." \
-            "Fix the error above, then run ${scripts}/upgrade.sh again."
+            "Fix the error above, then run ${scripts}/upgrade.sh${name_option} again."
     [ -n "$containers" ] || return 0
     # Each container ID is a word of its own.
     # shellcheck disable=SC2086
@@ -175,18 +234,18 @@ check_project_folder() {
         recorded="$(cd "$working_dir" 2> /dev/null && pwd -P)" || recorded=""
         if [ -n "$recorded" ] && [ "$recorded" != "$(pwd -P)" ]; then
             fail "The Docker Compose project \"${COMPOSE_PROJECT_NAME}\" belongs to the installation in" \
-                "${working_dir}, not this one. Nothing was changed. Run the scripts from that folder instead."
+                "${working_dir}, not the one in ${shown}. Nothing was changed."
         fi
         [ -z "$recorded" ] || continue
         say "" "The Docker Compose project \"${COMPOSE_PROJECT_NAME}\" was installed from ${working_dir}," \
             "and that folder no longer exists."
         REPLY=""
-        read -r -p "${color_prompt}Was that installation moved here? [y/N]:${color_reset} " || true
+        read -r -p "${color_prompt}Was that installation moved to ${shown}? [y/N]:${color_reset} " || true
         case "${REPLY:-n}" in
             y | Y | yes | YES) ;;
             *)
                 fail "Nothing was changed." \
-                    "Run ${scripts}/upgrade.sh again, and answer y if that installation was moved here."
+                    "Run ${scripts}/upgrade.sh${name_option} again, and answer y if that installation was moved."
                 ;;
         esac
     done 3<<< "$folders"
@@ -198,18 +257,44 @@ migrate_database() {
     docker compose run --rm --no-TTY server migrate
 }
 
+name=""
+for option in "$@"; do
+    case "$option" in
+        --name=*) name="${option#--name=}" ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *) fail "Unknown option: ${option}" "$(usage)" ;;
+    esac
+done
+
 title "Upgrading ProtoMap Server..."
 command -v docker > /dev/null 2>&1 ||
     fail "Docker is required but was not found." "Install Docker first: https://docs.docker.com/get-docker/"
 docker compose version > /dev/null 2>&1 ||
     fail "Docker Compose v2 is required but was not found." "Update Docker, or install Docker Compose."
 command -v curl > /dev/null 2>&1 || fail "curl is required to install the ProtoMap CLI."
-[ -e .env ] || [ -L .env ] ||
-    fail "No installation found." "To install ProtoMap Server, run ${scripts}/install.sh."
-# This installation's Docker Compose project, which install.sh writes to .env. Docker Compose would take one that the
-# shell sets first, which may name another installation.
+[ -f "$release_compose" ] || fail "${release_compose} is missing. Clone the repository again."
+find_installation "$name"
+if [ -z "$installation" ]; then
+    missing="No ProtoMap Server installation found in $(shorten "$installations")."
+    [ -z "$name" ] || missing="No ProtoMap Server installation named \"${name}\" found in $(shorten "$installations")."
+    others="$(other_installations)" || others=""
+    [ -z "$others" ] || fail "$missing" "Docker has ProtoMap Server containers that were installed elsewhere:" \
+        "$others" "To upgrade one, run this script as the user who installed it."
+    fail "$missing" "To install ProtoMap Server, run ${scripts}/install.sh${name:+ --name=${name}}."
+fi
+name="$(basename "$installation")"
+name_option=""
+[ "$name" = protomap ] || name_option=" --name=${name}"
+shown="$(shorten "$installation")"
+cd "$installation"
+# This installation's Docker Compose project, which install.sh writes to .env, and its definition of the services.
+# Docker Compose would take those that the shell sets first, which may name another installation.
 project="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env | tail -n 1 | tr -d "\"'")"
-export COMPOSE_PROJECT_NAME="${project:-protomap}"
+export COMPOSE_PROJECT_NAME="${project:-${name}}"
+export COMPOSE_FILE="${installation}/compose.yaml"
 check_project_folder
 
 say "" "ProtoMap Server is unavailable during database migration." "Back up your database first if needed."
@@ -217,10 +302,10 @@ say "" "ProtoMap Server is unavailable during database migration." "Back up your
 # would run the release .env names again, and migrate the database to it.
 pinned="$(sed -n 's/^PROTOMAP_VERSION=//p' .env | tail -n 1 | tr -d "\"'")"
 if [ -n "${PROTOMAP_VERSION:-}" ] && [ "$PROTOMAP_VERSION" != "${pinned:-latest}" ]; then
-    say "" "PROTOMAP_VERSION=${PROTOMAP_VERSION} is set in the shell, but not in ${folder}/.env." \
+    say "" "PROTOMAP_VERSION=${PROTOMAP_VERSION} is set in the shell, but not in ${shown}/.env." \
         "A later 'docker compose up' would run ${pinned:-the latest release} instead." \
-        "To stay on ${PROTOMAP_VERSION}, cancel, set PROTOMAP_VERSION=${PROTOMAP_VERSION} in ${folder}/.env," \
-        "and run ${scripts}/upgrade.sh again."
+        "To stay on ${PROTOMAP_VERSION}, cancel, set PROTOMAP_VERSION=${PROTOMAP_VERSION} in ${shown}/.env," \
+        "and run ${scripts}/upgrade.sh${name_option} again."
 fi
 say ""
 confirm "Upgrade ProtoMap Server?" y || {
@@ -229,18 +314,21 @@ confirm "Upgrade ProtoMap Server?" y || {
 }
 
 say ""
-step "Pulling images" docker compose pull --quiet ||
-    fail "Cannot pull images." "Fix the error above, then run ${scripts}/upgrade.sh again."
+# The images of the clone's definition of the services, which becomes the installation's once its release is known to
+# be no older than the running one.
+step "Pulling images" docker compose --file "$release_compose" --project-directory "$installation" pull --quiet ||
+    fail "Cannot pull images." "Fix the error above, then run ${scripts}/upgrade.sh${name_option} again."
 from="$(running_release)"
 release="$(server_release)"
 # An older release may not read what a later one wrote, such as its database schema.
 if [ -n "$from" ] && is_older_release "$release" "$from"; then
     fail "ProtoMap Server ${release} is older than the running version (${from})." "Nothing was changed." \
-        "Set PROTOMAP_VERSION in ${folder}/.env to ${from} or later." \
+        "Set PROTOMAP_VERSION in ${shown}/.env to ${from} or later." \
         "To go back to an earlier version, restore a database backup made while that version" \
         "was running, then run:" \
-        "  docker compose --file ${folder}/compose.yaml down" "  ${scripts}/upgrade.sh"
+        "  docker compose --file ${shown}/compose.yaml down" "  ${scripts}/upgrade.sh${name_option}"
 fi
+cp "$release_compose" compose.yaml
 services="$(docker compose ps --all --format '{{.Service}}')"
 server_scale="$(grep -cx server <<< "$services" || true)"
 worker_scale="$(grep -cx worker <<< "$services" || true)"
@@ -255,10 +343,11 @@ if [ "$from" = "$release" ]; then
         docker compose up --detach --wait --remove-orphans \
         --scale "server=${server_scale}" --scale "worker=${worker_scale}"; then
         show_server_log
-        fail "ProtoMap Server did not start." "Fix the error above, then run ${scripts}/upgrade.sh again."
+        fail "ProtoMap Server did not start." \
+            "Fix the error above, then run ${scripts}/upgrade.sh${name_option} again."
     fi
     say "ProtoMap Server ${release} is already running at ${url}."
-    install_cli "$release"
+    install_cli
     say "" "ProtoMap Server is up to date."
     exit 0
 fi
@@ -275,30 +364,30 @@ if [ "$status" -ne 0 ]; then
     docker compose start > /dev/null 2>&1 || true
     running=()
     [ -z "$from" ] || running=("ProtoMap Server ${from} is running again.")
-    # ProtoMap changes its one schema migration in place, so a release whose schema differs cannot use the database.
+    # ProtoMap may change a migration in place, so a release whose migrations differ cannot use the database.
     if [ "$status" -eq 3 ]; then
         fail "ProtoMap Server ${release} cannot use this database's schema." ${running[@]+"${running[@]}"} \
             "To run ${release}, back up any data to keep, then start over with:" \
-            "  ${scripts}/uninstall.sh" "  ${scripts}/install.sh" \
+            "  ${scripts}/uninstall.sh${name_option}" "  ${scripts}/install.sh${name_option}" \
             "Starting over deletes every organization, account, and scan."
     fi
     fail "Database migration failed." ${running[@]+"${running[@]}"} \
-        "Fix the error above, then run ${scripts}/upgrade.sh again."
+        "Fix the error above, then run ${scripts}/upgrade.sh${name_option} again."
 fi
 
 if ! step "Starting ProtoMap Server ${release}" \
     docker compose up --detach --wait --force-recreate --remove-orphans \
     --scale "server=${server_scale}" --scale "worker=${worker_scale}"; then
     show_server_log
-    fail "ProtoMap Server did not start." "Fix the error above, then run ${scripts}/upgrade.sh again."
+    fail "ProtoMap Server did not start." \
+        "Fix the error above, then run ${scripts}/upgrade.sh${name_option} again."
 fi
 say "ProtoMap Server ${release} is now running at ${url}."
-install_cli "$release"
+install_cli
 # Another release may read scans of another format, or analyze code anew: the platform marks each repository that it
-# needs scanned again, and a CLI of the old release on another computer may be refused.
+# needs scanned again, and an older CLI on another computer may be refused until it updates.
 say "" "ProtoMap Server is upgraded. Next:" "" \
     "  1. Rescan each repository that ProtoMap marks \"Needs a new scan\". Your organization sees" \
     "     the new scans once every marked repository is rescanned or removed." \
-    "  2. On other computers, install the CLI version that matches this server:" \
-    "     curl -fsSL https://protomap.ai/install.sh | sh -s -- --version ${release}" \
-    "     A CLI with automatic updates turned on updates itself when the server requires it."
+    "  2. On other computers, update the ProtoMap CLI to the latest version:" \
+    "     protomap update"

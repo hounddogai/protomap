@@ -1,26 +1,25 @@
 # ProtoMap Server.
 #
 # Quick start, from the root of the clone:
-#   1. ./server/scripts/install.sh (generates .env with secrets and a setup key, starts the services, and installs
-#      the CLI)
+#   1. ./server/scripts/install.sh (copies this file to ~/.protomap/server/protomap, writes .env there with secrets and
+#      a setup key, starts the services, and installs the CLI)
 #   2. Open http://localhost:3300, enter the setup key the installer printed, and name your organization and create its
 #      owner.
-# Upgrade with ./server/scripts/upgrade.sh, and remove ProtoMap with ./server/scripts/uninstall.sh.
+# Upgrade with ./server/scripts/upgrade.sh, and remove ProtoMap with ./server/scripts/uninstall.sh. The scripts run the
+# same from any folder.
 #
 # The services run the image hounddogai/protomap from Docker Hub, the latest release unless PROTOMAP_VERSION names
-# another. The server and the worker scale out; the proxy spreads requests across the server's replicas:
-#   docker compose --file server/compose.yaml up --detach --wait --scale server=3 --scale worker=2
+# another. The server and the worker scale out, each replica taking database connections of its own (see
+# PROTOMAP_DATABASE_CONNECTIONS in .env.example); the proxy spreads requests across the server's replicas:
+#   docker compose --file ~/.protomap/server/protomap/compose.yaml up --detach --wait --scale server=2 --scale worker=2
 #
 # Set PROTOMAP_PORT to change the published port, and PROTOMAP_BIND_ADDRESS=127.0.0.1 to accept connections only from
-# the Docker host, the computer that runs this stack. A CLI logged in to the old port keeps it, so log it in again:
-#   protomap login --server http://localhost:<port>
+# the Docker host, the computer that runs this stack. A CLI logged in at the old port stays pointed there, so log in
+# again:
+#   protomap login --server=http://localhost:<port>
 # The proxy publishes the job queue dashboard on 127.0.0.1 of the Docker host only, at PROTOMAP_DASHBOARD_PORT.
 #
-# Configuration comes from .env next to this file, or from the file named by --env-file. Development runs the server and
-# the worker on the host, and uses only the postgres service, with shell/env/.env.dev:
-#   docker compose --file public/server/compose.yaml --env-file shell/env/.env.dev up --detach --wait postgres
-# To run the full stack from source, including the development stand-ins, use:
-#   shell/scripts/dev containers --env-file <env file>
+# Configuration comes from .env next to this file, or from the file named by --env-file.
 
 # Keep the stack grouped under this project name in Docker Compose and Docker Desktop. COMPOSE_PROJECT_NAME overrides
 # it, which install.sh writes to .env, so that each installation has a project, containers, and volumes of its own,
@@ -49,6 +48,7 @@ x-protomap-environment: &protomap-environment
   PROTOMAP_MAX_RESPONSES: ${PROTOMAP_MAX_RESPONSES:-}
   PROTOMAP_STOP_DELAY_SECONDS: ${PROTOMAP_STOP_DELAY_SECONDS:-}
   PROTOMAP_CLIENT_ADDRESS_HEADER: ${PROTOMAP_CLIENT_ADDRESS_HEADER:-}
+  PROTOMAP_CLIENT_ADDRESS_HOPS: ${PROTOMAP_CLIENT_ADDRESS_HOPS:-}
   PROTOMAP_PUBLIC_URL: ${PROTOMAP_PUBLIC_URL:-}
   PROTOMAP_SMTP_URL: ${PROTOMAP_SMTP_URL:-}
   PROTOMAP_SMTP_FROM: ${PROTOMAP_SMTP_FROM:-}
@@ -69,13 +69,16 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-protomap}-postgres
     image: postgres:18.6-alpine
     profiles: ["postgres"]
+    # Twice PostgreSQL's default connections, for two server and two worker replicas at the default settings (see
+    # PROTOMAP_DATABASE_CONNECTIONS in .env.example).
+    command: ["postgres", "-c", "max_connections=200"]
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-protomap}
       POSTGRES_USER: ${POSTGRES_USER:-protomap}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-protomap}
     # Only the Docker host reaches it. Without PROTOMAP_POSTGRES_PORT, Docker picks the port; find it with:
-    # docker compose --file server/compose.yaml port postgres 5432
+    # docker compose --file ~/.protomap/server/protomap/compose.yaml port postgres 5432
     ports:
       - "127.0.0.1:${PROTOMAP_POSTGRES_PORT:-}:5432"
     volumes:

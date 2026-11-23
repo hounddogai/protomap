@@ -5,10 +5,10 @@
 #
 #   curl -fsSL https://protomap.ai/install.sh | sh
 #
-# Or a version, such as the one a ProtoMap server runs, which then stays: it turns the CLI's automatic updates off,
-# and installing the latest release turns them on again:
+# Or a version, which then stays: it turns the CLI's automatic updates off, and installing the latest release turns
+# them on again:
 #
-#   curl -fsSL https://protomap.ai/install.sh | sh -s -- --version 0.1.0
+#   curl -fsSL https://protomap.ai/install.sh | sh -s -- --version <version>
 #
 # The CLI installs to ~/.local/bin, or to PROTOMAP_INSTALL_DIR, which goes on the PATH in the profile of the user's
 # shell, zsh, bash, or fish, unless it is already there. The command there is a link into ~/.protomap, where each

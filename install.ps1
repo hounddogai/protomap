@@ -3,10 +3,10 @@
 #
 #   irm https://protomap.ai/install.ps1 | iex
 #
-# Or a version, such as the one a ProtoMap server runs, which then stays: it turns the CLI's automatic updates off,
-# and installing the latest release turns them on again:
+# Or a version, which then stays: it turns the CLI's automatic updates off, and installing the latest release turns
+# them on again:
 #
-#   & ([scriptblock]::Create((irm https://protomap.ai/install.ps1))) -Version 0.1.0
+#   & ([scriptblock]::Create((irm https://protomap.ai/install.ps1))) -Version <version>
 #
 # The CLI installs to %LOCALAPPDATA%\protomap\bin, or to PROTOMAP_INSTALL_DIR, and the folder goes first on the user's
 # PATH. A folder named bin also keeps each version in versions\<version> beside it and names the current one in
@@ -139,6 +139,14 @@
     # A semicolon splits a PATH's folders, and Windows reads %NAME% in one as a variable.
     if ($Directory -match '[;%]') {
         throw "The install folder cannot contain a semicolon or a percent sign because it goes on your PATH:`n" +
+            "  $Directory`nSet PROTOMAP_INSTALL_DIR to another folder."
+    }
+    # Windows PowerShell, and PowerShell before 7.1, read the file a download goes to as a wildcard pattern, in which
+    # brackets stand for one of the characters between them, so the download would find no file to write. No Windows
+    # user name has brackets, so the default folders never do. Downloading into memory instead, to write the file with
+    # .NET, would hold several copies of the CLI in memory at once.
+    if ($Directory -match '[\[\]]') {
+        throw "The install folder cannot contain square brackets:`n" +
             "  $Directory`nSet PROTOMAP_INSTALL_DIR to another folder."
     }
     $Binary = Join-Path $Directory 'protomap.exe'

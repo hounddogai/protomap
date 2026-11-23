@@ -1,18 +1,10 @@
 #!/usr/bin/env bash
 #
-# Installer for ProtoMap Server: asks for each choice its options do not give, writes .env with secrets and a setup
-# key, starts the services, and installs the ProtoMap CLI of the same release.
+# Installer for ProtoMap Server: asks for each choice its options do not give, writes the installation's compose.yaml
+# and its .env, with secrets and a setup key, to ~/.protomap/server/<name>, starts the services, and installs the
+# latest ProtoMap CLI. It runs the same from any folder.
 
 set -euo pipefail
-
-# This script's folder, and the folder above it with compose.yaml and .env, as the command that ran the script names
-# them, such as ./server/scripts and ./server from the root of the clone, so the commands and files the
-# script names work from where it ran.
-scripts="$(dirname "$0")"
-folder="$(dirname "$scripts")"
-[ "$scripts" != . ] || folder=..
-# Run from the folder with compose.yaml and .env.
-cd "$folder"
 
 color_bold=""
 color_done=""
@@ -42,6 +34,35 @@ fail() {
     exit 1
 }
 
+# $1 with the home folder written as ~, which reads shorter.
+# The ~ is printed as is, for the reader.
+# shellcheck disable=SC2088
+shorten() {
+    case "$1" in
+        "${HOME}"/*) printf '~/%s' "${1#"${HOME}/"}" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+# This script's folder in a clone of the repository, found through any symbolic links to the script, so that the script
+# runs the same from any folder and by any path. The clone's server folder has the compose.yaml it installs.
+script="${BASH_SOURCE[0]:-}"
+[ -f "$script" ] || fail "Run this script from a clone of the repository:" \
+    "  git clone https://github.com/hounddogai/protomap.git" "  protomap/server/scripts/install.sh"
+while [ -L "$script" ]; do
+    link="$(readlink "$script")"
+    case "$link" in
+        /*) script="$link" ;;
+        *) script="$(dirname "$script")/${link}" ;;
+    esac
+done
+script_folder="$(cd "$(dirname "$script")" && pwd -P)"
+release_compose="$(dirname "$script_folder")/compose.yaml"
+scripts="$(shorten "$script_folder")"
+# This user's installations, each in a folder named after its Docker Compose project, with its compose.yaml, its .env,
+# and the backups uninstall.sh makes. No clone holds them, so the scripts of any clone find them.
+installations="${HOME}/.protomap/server"
+
 usage() {
     say "Usage: $0 [--trial | --production] [--port=PORT] [--dashboard-port=PORT] [--name=NAME]" \
         "       [--replace-login]" "" \
@@ -52,12 +73,13 @@ usage() {
         "  --port=PORT            The server's port [default: 3300]" \
         "  --dashboard-port=PORT  The job queue dashboard's port, on 127.0.0.1 only [default: 8801; if it is" \
         "                         taken, the installer asks for another]" \
-        "  --name=NAME            The Docker Compose project name, which must be unused [default: protomap]" \
+        "  --name=NAME            The Docker Compose project name, which must be unused, and the name of the" \
+        "                         installation's folder in ~/.protomap/server [default: protomap]" \
         "  --replace-login        With --trial, log the CLI in to this server without asking, even if it is" \
         "                         logged in to another server. The other login is backed up" "" \
         "PROTOMAP_DASHBOARD_PORT and COMPOSE_PROJECT_NAME also set the dashboard port and project name." \
         "When there is no input to read, such as in a script, every question takes its default answer." \
-        "A CLI logged in to another server then stays as it is, unless --replace-login is passed."
+        "A CLI logged in to another server then stays logged in to it, unless --replace-login is passed."
 }
 
 # Whether the input ended, such as the answers that a script pipes in, so no question can be asked again.
@@ -163,13 +185,20 @@ port_problem() {
 # settings on its containers and its database, and its scripts would act on both.
 project_problem() {
     # Bash 3.2 matches ranges such as a-z by the locale's collation, which puts capitals among them.
-    local folders LC_ALL=C
+    local folders option="" LC_ALL=C
     case "$1" in
         "" | [!a-z0-9]* | *[!a-z0-9_-]*)
             say "Use a name of lowercase letters, digits, hyphens, and underscores that starts with a letter or digit."
             return
             ;;
     esac
+    [ "$1" = protomap ] || option=" --name=$1"
+    if [ -e "${installations}/$1/.env" ] || [ -L "${installations}/$1/.env" ]; then
+        say "ProtoMap Server \"$1\" is already installed in $(shorten "${installations}/$1")." \
+            "To upgrade it, run ${scripts}/upgrade.sh${option}." \
+            "To start over, run ${scripts}/uninstall.sh${option}," "then ${scripts}/install.sh${option}."
+        return
+    fi
     folders="$(docker ps --all --filter "label=com.docker.compose.project=$1" \
         --format '{{ .Label "com.docker.compose.project.working_dir" }}' | sort -u | tr '\n' ' ')"
     if [ -n "$folders" ]; then
@@ -222,10 +251,9 @@ server_release() {
     docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image"
 }
 
-# Installs release $1 of the ProtoMap CLI, the server's, so the two speak the same API. Installing a given release
-# turns the CLI's automatic updates off, so it stays at the server's release until an upgrade installs the next. It
-# replaces the CLI found on PATH, or else installs to ~/.local/bin, which the CLI's installer puts on the PATH in the
-# profile of the user's shell, and says where it went. Keep it in step with upgrade.sh.
+# Installs the latest ProtoMap CLI, which then updates itself, since the server expects the latest CLI. It replaces the
+# CLI found on PATH, or else installs to ~/.local/bin, which the CLI's installer puts on the PATH in the profile of the
+# user's shell, and says where it went. Keep it in step with upgrade.sh.
 install_cli() {
     local existing directory
     existing="$(command -v protomap || true)"
@@ -234,10 +262,8 @@ install_cli() {
     # The folders the CLI's installer creates are for everyone to read, whatever the caller's umask.
     (
         umask 022
-        curl -fsSL https://protomap.ai/install.sh |
-            PROTOMAP_INSTALL_DIR="$directory" PROTOMAP_INSTALL_BRIEF=1 sh -s -- --version "$1"
-    ) || fail "Cannot install ProtoMap CLI $1. Install it with:" \
-        "  curl -fsSL https://protomap.ai/install.sh | sh -s -- --version $1"
+        curl -fsSL https://protomap.ai/install.sh | PROTOMAP_INSTALL_DIR="$directory" PROTOMAP_INSTALL_BRIEF=1 sh
+    ) || fail "Cannot install the ProtoMap CLI. Install it with:" "  curl -fsSL https://protomap.ai/install.sh | sh"
     "${directory}/protomap" --version > /dev/null 2>&1 ||
         fail "The ProtoMap CLI was installed, but it does not run:" "  ${directory}/protomap"
     # Outside the PATH of this terminal, the CLI runs in the next one, which reads the profile it went on the PATH in.
@@ -279,13 +305,13 @@ docker compose version > /dev/null 2>&1 ||
 command -v curl > /dev/null 2>&1 || fail "curl is required to install the ProtoMap CLI."
 docker ps > /dev/null 2>&1 ||
     fail "Docker is not running, or this user cannot use it." "Start Docker, then run ${scripts}/install.sh again."
-if [ -e .env ] || [ -L .env ]; then
-    fail "ProtoMap Server is already installed." "To upgrade, run ${scripts}/upgrade.sh." \
-        "To start over, run ${scripts}/uninstall.sh," "then ${scripts}/install.sh."
-fi
+[ -f "$release_compose" ] || fail "${release_compose} is missing. Clone the repository again."
 name="${name:-protomap}"
 problem="$(project_problem "$name")"
 [ -z "$problem" ] || fail "$problem"
+installation="${installations}/${name}"
+name_option=""
+[ "$name" = protomap ] || name_option=" --name=${name}"
 
 if [ -z "$install_type" ]; then
     say "" "Choose an installation:" \
@@ -378,11 +404,6 @@ if [ "$install_type" != "1" ]; then
 elif [ -z "$has_other_login" ]; then
     is_login_replaced=1
 fi
-# A CLI that stays logged in to another server keeps its release and update settings, which suit that server.
-is_cli_kept=""
-if [ -n "$has_other_login" ] && [ -z "$is_login_replaced" ] && command -v protomap > /dev/null 2>&1; then
-    is_cli_kept=1
-fi
 login_backup=""
 if [ -n "$is_login_replaced" ] && [ -e "$cli_login" ]; then
     login_backup="${cli_login}.backup.$(date +%Y%m%d-%H%M%S)"
@@ -398,7 +419,12 @@ if [ -n "$is_login_replaced" ]; then
     api_key_id="$(generate_uuid)"
 fi
 umask 077
-env_temp="$(mktemp "$(pwd)/.env.tmp.XXXXXX")"
+mkdir -p "$installation"
+cd "$installation"
+cp "$release_compose" compose.yaml
+# The installation's definition of the services, rather than any that the shell names.
+export COMPOSE_FILE="${installation}/compose.yaml"
+env_temp="$(mktemp "${installation}/.env.tmp.XXXXXX")"
 {
     printf '# Generated by install.sh. Keep this file private: it contains secrets.\n\n'
     printf 'PROTOMAP_SETUP_KEY=%s\n' "$setup_key"
@@ -424,10 +450,6 @@ env_temp="$(mktemp "$(pwd)/.env.tmp.XXXXXX")"
         printf '\nPROTOMAP_INITIAL_API_KEY_ID=%s\n' "$api_key_id"
         printf 'PROTOMAP_INITIAL_API_KEY_HASH=%s\n' "$(hash_secret "$api_key")"
     fi
-    if [ -n "$is_cli_kept" ]; then
-        printf '\n# The CLI stayed logged in to another server. upgrade.sh leaves it unchanged too.\n'
-        printf 'PROTOMAP_CLI_KEPT=1\n'
-    fi
     if [ -n "$login_backup" ] && [ -n "$has_other_login" ]; then
         printf '\n# The CLI login that this installation replaced, which uninstall.sh puts back.\n'
         printf "PROTOMAP_CLI_LOGIN_BACKUP='%s'\n" "$login_backup"
@@ -436,14 +458,14 @@ env_temp="$(mktemp "$(pwd)/.env.tmp.XXXXXX")"
 mv "$env_temp" .env
 env_temp=""
 
-say "" "Created ${folder}/.env with secrets and a one-time setup key (keep it safe)."
+say "" "Created $(shorten "$installation")/.env with secrets and a one-time setup key (keep it safe)."
 # Docker Compose takes these from the environment before .env, so the commands below use this installation's.
 export COMPOSE_PROJECT_NAME="$name" PROTOMAP_PORT="$port" PROTOMAP_DASHBOARD_PORT="$dashboard_port"
 
 say ""
 step "Pulling images" docker compose pull --quiet ||
     fail "Cannot pull images." "Fix the error above." \
-        "Then run ${scripts}/uninstall.sh and ${scripts}/install.sh."
+        "Then run ${scripts}/uninstall.sh${name_option} and ${scripts}/install.sh${name_option}."
 if ! step "Starting ProtoMap Server" docker compose up --detach --wait; then
     # The services' states and the server's last log lines, which say why it did not start, such as a database it
     # cannot reach.
@@ -453,18 +475,12 @@ if ! step "Starting ProtoMap Server" docker compose up --detach --wait; then
     say ""
     hint="Fix the error above."
     [ "$install_type" = "1" ] || hint="Fix the error above, for example in the PostgreSQL URL."
-    fail "ProtoMap Server did not start." "$hint" "Then run ${scripts}/uninstall.sh and ${scripts}/install.sh."
+    fail "ProtoMap Server did not start." "$hint" \
+        "Then run ${scripts}/uninstall.sh${name_option} and ${scripts}/install.sh${name_option}."
 fi
 release="$(server_release)"
 say "ProtoMap Server ${release} is now running at ${url}."
-if [ -n "$is_cli_kept" ]; then
-    cli_ready=1
-    say "Left the ProtoMap CLI unchanged because it is logged in to ${previous_url:-another server}." \
-        "To install the CLI version that matches this server instead, run:" \
-        "  curl -fsSL https://protomap.ai/install.sh | sh -s -- --version ${release}"
-else
-    install_cli "$release"
-fi
+install_cli
 if [ -n "$is_login_replaced" ]; then
     mkdir -p "$cli_data_dir"
     chmod 700 "$cli_data_dir"
@@ -481,7 +497,8 @@ say "" "ProtoMap Server is installed. Next:" ""
 if [ -t 1 ]; then
     say "  1. Open ${url} and enter this one-time setup key:" "" "     ${color_bold}${setup_key}${color_reset}" ""
 else
-    say "  1. Open ${url} and enter the one-time setup key" "     (PROTOMAP_SETUP_KEY in ${folder}/.env)." ""
+    say "  1. Open ${url} and enter the one-time setup key" \
+        "     (PROTOMAP_SETUP_KEY in $(shorten "$installation")/.env)." ""
 fi
 say "     Then create your organization and your Owner account." ""
 if [ -n "$is_login_replaced" ]; then
