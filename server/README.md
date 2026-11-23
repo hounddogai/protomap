@@ -80,23 +80,34 @@ to the header in which the proxy passes on each client's address (see [`server/.
 ## Upgrade
 
 Back up your database first, because ProtoMap Server is briefly unavailable while the upgrade runs. Upgrading keeps your
-configuration and data:
+configuration and data. To back up the bundled database of an installation named `protomap`:
+
+```shell
+cd ~/.protomap/server/protomap
+docker compose exec -T postgres sh -c 'pg_dump --clean --if-exists --username="$POSTGRES_USER" "$POSTGRES_DB"' \
+  > "protomap-backup.$(date +%Y%m%d-%H%M%S).sql"
+```
+
+Then upgrade from your clone:
 
 ```shell
 git pull && ./server/scripts/upgrade.sh
 ```
 
-ProtoMap Server runs the latest release unless `PROTOMAP_VERSION` in its `.env` names another, such as `1.2.3`. If
-the upgrade fails, the previous version starts again: fix the reported error and run the upgrade again. The upgrade also
-installs the latest CLI.
+ProtoMap Server runs the latest release unless `PROTOMAP_VERSION` in its `.env` names another, such as `1.2.3`. If its
+first database migration fails, the previous version starts again. If a later migration of the same upgrade fails, or
+the new version fails to start after its migrations, the server stays stopped, since the previous version cannot use the
+migrated database. Either way, fix the reported error and run the upgrade again, which goes on from where it stopped.
+The upgrade also installs the latest CLI.
 
-After an upgrade to another release, scan again each repository that the platform marks "Needs a New Scan". Your
+After an upgrade to another release, scan again each repository that the platform marks "Rescan Required". Your
 organization sees the new scans once every marked repository is scanned again or removed. On other computers, a CLI
 that updates itself does so when the server asks it to. To update one now, run `protomap update`.
 
-The upgrade refuses a release older than the one running. To go back to one, restore the database backup made before
-upgrading from it, set `PROTOMAP_VERSION` in `.env` to that release, then run
-`docker compose --file ~/.protomap/server/protomap/compose.yaml down` and `./server/scripts/upgrade.sh`.
+The upgrade refuses a release older than the one running. To go back to one, first set `PROTOMAP_VERSION` in `.env` to
+that release, then restore the database backup made before upgrading from it into an empty database, as below: its last
+command starts that release. Started before `PROTOMAP_VERSION` names it, the newer release would migrate the backup
+again.
 
 ## Uninstall
 
@@ -111,15 +122,17 @@ If a Trial installation replaced the CLI's login, uninstalling restores it.
 To start over, uninstall, then run `./server/scripts/install.sh` again. With your own PostgreSQL, use a new or empty
 database.
 
-To restore a database backup that uninstalling made, such as
-`~/.protomap/server/protomap/protomap-backup.20260101-120000.sql`, into a fresh Trial installation of the same name:
-stop the services that use the database, load the backup, set `PROTOMAP_SECRET_KEY` in `.env` to the one in the
-matching `.env.backup.20260101-120000`, start the services, and log the CLI in again with
+To restore a database backup, such as `~/.protomap/server/protomap/protomap-backup.20260101-120000.sql` that
+uninstalling made, into a fresh Trial installation of the same name: stop the services that use the database, empty it,
+since a newer release may have added tables the backup does not drop, load the backup, set `PROTOMAP_SECRET_KEY` in
+`.env` to the one in the matching `.env.backup.20260101-120000`, start the services, and log the CLI in again with
 `protomap login --server=<address>`:
 
 ```shell
 cd ~/.protomap/server/protomap
 docker compose stop proxy worker server
+docker compose exec -T postgres sh -c \
+  'dropdb --username="$POSTGRES_USER" "$POSTGRES_DB" && createdb --username="$POSTGRES_USER" "$POSTGRES_DB"'
 docker compose exec -T postgres \
   psql --set ON_ERROR_STOP=1 --quiet --username=protomap protomap < protomap-backup.20260101-120000.sql
 docker compose up --detach --wait

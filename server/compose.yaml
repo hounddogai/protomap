@@ -120,8 +120,9 @@ services:
     environment:
       <<: *protomap-environment
       PROTOMAP_DASHBOARD_LISTEN: 0.0.0.0:8801
-    # Let jobs in flight finish; the worker's own shutdown grace is 30 seconds.
-    stop_grace_period: 40s
+    # Let jobs in flight finish: the worker's own shutdown grace is 30 seconds, and its job queue takes up to 17 more to
+    # requeue the jobs it stopped, which a worker killed sooner leaves to its sweeper, using up their attempts.
+    stop_grace_period: 60s
     depends_on:
       server:
         condition: service_healthy

@@ -251,6 +251,41 @@ check_project_folder() {
     done 3<<< "$folders"
 }
 
+# Whether every server of the installation turns healthy within its health check's time, rather than exiting or being
+# restarted, as the previous release is in a database a newer one migrated.
+servers_become_healthy() {
+    local containers states counts first=""
+    for _ in $(seq 80); do
+        # The project's server containers, without one-off ones that `docker compose run` left.
+        containers="$(docker ps --all --quiet --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+            --filter label=com.docker.compose.service=server --filter label=com.docker.compose.oneoff=False)"
+        [ -n "$containers" ] || return 1
+        # shellcheck disable=SC2086 # One container ID a line, each a word.
+        states="$(docker inspect --format \
+            '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} {{.RestartCount}}' $containers)" ||
+            return 1
+        grep -qv '^running healthy ' <<< "$states" || return 0
+        counts="$(awk '{ print $NF }' <<< "$states")"
+        [ -n "$first" ] || first="$counts"
+        if grep -qE '^(exited|dead|restarting)|unhealthy' <<< "$states" || [ "$counts" != "$first" ]; then
+            return 1
+        fi
+        sleep 3
+    done
+    return 1
+}
+
+# Starts $1 servers, with the database they need, and once they are healthy, $2 workers and the proxy, passing the rest
+# of the arguments to `docker compose up`. Docker Compose would wait without end for servers that keep failing as they
+# start before it starts the services that need them, so the servers start alone first.
+start_services() {
+    local servers="$1" workers="$2"
+    shift 2
+    docker compose up --detach "$@" --scale "server=${servers}" server || return
+    servers_become_healthy || { echo "The servers did not become healthy."; return 1; }
+    docker compose up --detach --wait --wait-timeout 300 --no-deps "$@" --scale "worker=${workers}" worker proxy
+}
+
 # Moves the server and the worker aside and migrates the database with the pulled release.
 migrate_database() {
     docker compose stop proxy server worker || return
@@ -324,9 +359,8 @@ release="$(server_release)"
 if [ -n "$from" ] && is_older_release "$release" "$from"; then
     fail "ProtoMap Server ${release} is older than the running version (${from})." "Nothing was changed." \
         "Set PROTOMAP_VERSION in ${shown}/.env to ${from} or later." \
-        "To go back to an earlier version, restore a database backup made while that version" \
-        "was running, then run:" \
-        "  docker compose --file ${shown}/compose.yaml down" "  ${scripts}/upgrade.sh${name_option}"
+        "To go back to an earlier version, set PROTOMAP_VERSION to it first, then restore a database" \
+        "backup made while it was running into an empty database, as the README's Upgrade section says."
 fi
 cp "$release_compose" compose.yaml
 services="$(docker compose ps --all --format '{{.Service}}')"
@@ -340,8 +374,7 @@ url="http://localhost:${port:-3300}"
 # The release that runs already needs no migration, and so no downtime: only the services that are not running start.
 if [ "$from" = "$release" ]; then
     if ! step "Starting any stopped services of ProtoMap Server ${release}" \
-        docker compose up --detach --wait --remove-orphans \
-        --scale "server=${server_scale}" --scale "worker=${worker_scale}"; then
+        start_services "$server_scale" "$worker_scale" --remove-orphans; then
         show_server_log
         fail "ProtoMap Server did not start." \
             "Fix the error above, then run ${scripts}/upgrade.sh${name_option} again."
@@ -360,10 +393,21 @@ fi
 status=0
 step "Stopping ProtoMap Server and migrating its database" migrate_database || status=$?
 if [ "$status" -ne 0 ]; then
-    # A failed migration changes nothing, since each runs in a transaction, so the previous release starts again.
-    docker compose start > /dev/null 2>&1 || true
+    # Each migration runs in a transaction of its own, so a failed one changes nothing, but those before it in the same
+    # run stay applied, and the previous release then refuses the schema. So it is said to run again only once its
+    # servers are healthy, which start alone first (see start_services).
     running=()
-    [ -z "$from" ] || running=("ProtoMap Server ${from} is running again.")
+    if [ -n "$from" ]; then
+        if docker compose start server > /dev/null 2>&1 && servers_become_healthy; then
+            docker compose start > /dev/null 2>&1 || true
+            running=("ProtoMap Server ${from} is running again.")
+        else
+            # It may fail as an earlier migration of this upgrade changed the database, or as the database cannot be
+            # reached, whose return lets it start again by itself, so it is left to keep trying, and its log says why.
+            show_server_log
+            running=("ProtoMap Server ${from} did not start again. Its last log lines are above.")
+        fi
+    fi
     # ProtoMap may change a migration in place, so a release whose migrations differ cannot use the database.
     if [ "$status" -eq 3 ]; then
         fail "ProtoMap Server ${release} cannot use this database's schema." ${running[@]+"${running[@]}"} \
@@ -376,10 +420,10 @@ if [ "$status" -ne 0 ]; then
 fi
 
 if ! step "Starting ProtoMap Server ${release}" \
-    docker compose up --detach --wait --force-recreate --remove-orphans \
-    --scale "server=${server_scale}" --scale "worker=${worker_scale}"; then
+    start_services "$server_scale" "$worker_scale" --force-recreate --remove-orphans; then
     show_server_log
-    fail "ProtoMap Server did not start." \
+    # The database is migrated already, so the previous release, which refuses its schema, cannot start again.
+    fail "ProtoMap Server ${release} did not start, and its database is already migrated for it." \
         "Fix the error above, then run ${scripts}/upgrade.sh${name_option} again."
 fi
 say "ProtoMap Server ${release} is now running at ${url}."

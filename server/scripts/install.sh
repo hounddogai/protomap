@@ -214,6 +214,41 @@ project_problem() {
 }
 
 
+# Whether every server of the installation turns healthy within its health check's time, rather than exiting or being
+# restarted, as one that cannot reach its database is.
+servers_become_healthy() {
+    local containers states counts first=""
+    for _ in $(seq 80); do
+        # The project's server containers, without one-off ones that `docker compose run` left.
+        containers="$(docker ps --all --quiet --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
+            --filter label=com.docker.compose.service=server --filter label=com.docker.compose.oneoff=False)"
+        [ -n "$containers" ] || return 1
+        # shellcheck disable=SC2086 # One container ID a line, each a word.
+        states="$(docker inspect --format \
+            '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} {{.RestartCount}}' $containers)" ||
+            return 1
+        grep -qv '^running healthy ' <<< "$states" || return 0
+        counts="$(awk '{ print $NF }' <<< "$states")"
+        [ -n "$first" ] || first="$counts"
+        if grep -qE '^(exited|dead|restarting)|unhealthy' <<< "$states" || [ "$counts" != "$first" ]; then
+            return 1
+        fi
+        sleep 3
+    done
+    return 1
+}
+
+# Starts $1 servers, with the database they need, and once they are healthy, $2 workers and the proxy, passing the rest
+# of the arguments to `docker compose up`. Docker Compose would wait without end for servers that keep failing as they
+# start before it starts the services that need them, so the servers start alone first.
+start_services() {
+    local servers="$1" workers="$2"
+    shift 2
+    docker compose up --detach "$@" --scale "server=${servers}" server || return
+    servers_become_healthy || { echo "The servers did not become healthy."; return 1; }
+    docker compose up --detach --wait --wait-timeout 300 --no-deps "$@" --scale "worker=${workers}" worker proxy
+}
+
 # Prints $1 random bytes, base64url-encoded without padding or newlines.
 generate_secret() {
     if command -v openssl > /dev/null 2>&1; then
@@ -466,7 +501,7 @@ say ""
 step "Pulling images" docker compose pull --quiet ||
     fail "Cannot pull images." "Fix the error above." \
         "Then run ${scripts}/uninstall.sh${name_option} and ${scripts}/install.sh${name_option}."
-if ! step "Starting ProtoMap Server" docker compose up --detach --wait; then
+if ! step "Starting ProtoMap Server" start_services 1 1; then
     # The services' states and the server's last log lines, which say why it did not start, such as a database it
     # cannot reach.
     docker compose ps --all || true
