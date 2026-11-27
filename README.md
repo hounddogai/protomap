@@ -108,14 +108,27 @@ every repository:
 claude mcp add -s user protomap -- protomap mcp serve
 ```
 
-To add it to one repository only, run the command from the repository's folder without `-s user`. For Antigravity:
+To add it to one repository only, run the command from the repository's folder without `-s user`. For Codex, add this
+entry to `~/.codex/config.toml`, or for one repository only, to the `.codex/config.toml` of a repository Codex trusts:
+
+```toml
+[mcp_servers.protomap]
+command = "protomap"
+args = ["mcp", "serve"]
+omit_tools_from = ["deferred"]
+```
+
+`omit_tools_from` gives ProtoMap's tools to the model at the start of each session. Without it, Codex keeps MCP tools
+behind its tool search, where models seldom look for them, so they search the code instead. `codex mcp add` cannot set
+it. For Antigravity:
 
 ```shell
 agy mcp add protomap protomap mcp serve
 ```
 
-**Scan a Repository** in the platform's sidebar gives the command for Codex, Gemini CLI, Copilot CLI, VS Code, OpenCode,
-Amp, Droid, and Qwen Code, and the JSON for other agents, which run `protomap mcp serve` over standard input and output.
+**Scan a Repository** in the platform's sidebar gives this entry for Codex, the command for Gemini CLI, Copilot CLI, VS
+Code, OpenCode, Amp, Droid, and Qwen Code, and the JSON for other agents, which run `protomap mcp serve` over standard
+input and output.
 The agent reads the graph as you, so log in first, or use a personal API key.
 
 ## Containers, CI, and other automation
